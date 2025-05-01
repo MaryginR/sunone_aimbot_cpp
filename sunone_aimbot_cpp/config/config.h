@@ -36,7 +36,7 @@ public:
     float predictionInterval;
     bool easynorecoil;
     float easynorecoilstrength;
-    std::string input_method; // "WIN32", "GHUB", "ARDUINO", "KMBOX"
+    std::string input_method; // "WIN32", "GHUB", "ARDUINO", "KMBOX", "RAWHID"
 
     // Wind mouse
     bool wind_mouse_enabled;
@@ -55,6 +55,10 @@ public:
     int kmbox_baudrate;
     std::string kmbox_port;
     bool kmbox_enable_keys;
+    
+    // RawHID
+    int hid_vid;
+    int hid_pid;
 
     // Mouse shooting
     bool auto_shoot;

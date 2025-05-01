@@ -15,6 +15,7 @@
 #include "SerialConnection.h"
 #include "sunone_aimbot_cpp.h"
 #include "ghub.h"
+#include "RawHidMouse.h"
 
 MouseThread::MouseThread(
     int resolution,
@@ -226,6 +227,10 @@ void MouseThread::sendMovementToDriver(int dx, int dy)
     {
         gHub->mouse_xy(dx, dy);
     }
+    else if (rawhid && rawhid->isOpen())
+    {
+        rawhid->move(0, dx, dy);
+    }
     else
     {
         INPUT in{ 0 };
@@ -326,8 +331,14 @@ void MouseThread::moveMousePivot(double pivotX, double pivotY)
     int mx = static_cast<int>(mv.first);
     int my = static_cast<int>(mv.second);
 
-    if (wind_mouse_enabled)  windMouseMoveRelative(mx, my);
-    else                     queueMove(mx, my);
+    if (wind_mouse_enabled)
+    {
+        windMouseMoveRelative(mx, my);
+    }
+    else
+    {
+        queueMove(mx, my);
+    }
 }
 
 void MouseThread::pressMouse(const AimbotTarget& target)
@@ -468,6 +479,12 @@ std::vector<std::pair<double, double>> MouseThread::predictFuturePositions(doubl
     }
 
     return result;
+}
+
+void MouseThread::setRawHidMouse(RawHidMouse* newRawMouse)
+{
+    std::lock_guard<std::mutex> lock(input_method_mutex);
+    rawhid = newRawMouse;
 }
 
 void MouseThread::storeFuturePositions(const std::vector<std::pair<double, double>>& positions)

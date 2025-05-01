@@ -42,6 +42,7 @@
     <ClCompile Include="mouse\ghub.cpp" />
     <ClCompile Include="mouse\KmboxConnection.cpp" />
     <ClCompile Include="mouse\mouse.cpp" />
+    <ClCompile Include="mouse\RawHidMouse.cpp" />
     <ClCompile Include="mouse\SerialConnection.cpp" />
     <ClCompile Include="mouse\AimbotTarget.cpp" />
     <ClCompile Include="overlay\draw_ai.cpp" />
@@ -83,6 +84,7 @@
     <ClInclude Include="mouse\ghub.h" />
     <ClInclude Include="mouse\KmboxConnection.h" />
     <ClInclude Include="mouse\mouse.h" />
+    <ClInclude Include="mouse\RawHidMouse.h" />
     <ClInclude Include="mouse\SerialConnection.h" />
     <ClInclude Include="mouse\AimbotTarget.h" />
     <ClInclude Include="overlay\draw_settings.h" />

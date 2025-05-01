@@ -20,6 +20,8 @@
 #include "KmboxConnection.h"
 #include "ghub.h"
 
+class RawHidMouse;
+
 class MouseThread
 {
 private:
@@ -35,8 +37,8 @@ private:
     double max_speed_multiplier;
     double center_x;
     double center_y;
-    bool   auto_shoot;
-    float  bScope_multiplier;
+    bool auto_shoot;
+    float bScope_multiplier;
 
     double prev_x, prev_y;
     double prev_velocity_x, prev_velocity_y;
@@ -73,15 +75,16 @@ private:
     std::pair<double, double> calc_movement(double target_x, double target_y);
     double calculate_speed_multiplier(double distance);
 
+    RawHidMouse* rawhid = nullptr;
 public:
     std::mutex input_method_mutex;
 
     MouseThread(
-        int  resolution,
-        int  dpi,
+        int resolution,
+        int dpi,
         double sensitivity,
-        int  fovX,
-        int  fovY,
+        int fovX,
+        int fovY,
         double minSpeedMultiplier,
         double maxSpeedMultiplier,
         double predictionInterval,
@@ -93,9 +96,18 @@ public:
     );
     ~MouseThread();
 
-    void updateConfig(int resolution, double dpi, double sensitivity, int fovX, int fovY,
-        double minSpeedMultiplier, double maxSpeedMultiplier,
-        double predictionInterval, bool auto_shoot, float bScope_multiplier);
+    void updateConfig(
+        int resolution,
+        double dpi,
+        double sensitivity,
+        int fovX,
+        int fovY,
+        double minSpeedMultiplier,
+        double maxSpeedMultiplier,
+        double predictionInterval,
+        bool auto_shoot,
+        float bScope_multiplier
+    );
 
     void moveMousePivot(double pivotX, double pivotY);
     std::pair<double, double> predict_target_position(double target_x, double target_y);
@@ -104,8 +116,7 @@ public:
     void releaseMouse();
     void resetPrediction();
     void checkAndResetPredictions();
-    bool check_target_in_scope(double target_x, double target_y,
-        double target_w, double target_h, double reduction_factor);
+    bool check_target_in_scope(double target_x, double target_y,double target_w, double target_h, double reduction_factor);
 
     std::vector<std::pair<double, double>> predictFuturePositions(double pivotX, double pivotY, int frames);
     void storeFuturePositions(const std::vector<std::pair<double, double>>& positions);
@@ -118,6 +129,8 @@ public:
 
     void setTargetDetected(bool detected) { target_detected.store(detected); }
     void setLastTargetTime(const std::chrono::steady_clock::time_point& t) { last_target_time = t; }
+
+    void setRawHidMouse(RawHidMouse* rawMouse);
 };
 
 #endif // MOUSE_H

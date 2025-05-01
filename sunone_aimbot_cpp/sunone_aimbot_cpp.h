@@ -8,6 +8,7 @@
 #include "SerialConnection.h"
 #include "KmboxConnection.h"
 #include "optical_flow.h"
+#include "RawHidMouse.h"
 
 extern Config config;
 extern Detector detector;
@@ -15,6 +16,7 @@ extern DirectMLDetector* dml_detector;
 extern MouseThread* globalMouseThread;
 extern SerialConnection* arduinoSerial;
 extern KmboxConnection* kmboxSerial;
+extern RawHidMouse* rawHidMouse;
 extern std::atomic<bool> input_method_changed;
 extern OpticalFlow opticalFlow;
 extern std::atomic<bool> aiming;

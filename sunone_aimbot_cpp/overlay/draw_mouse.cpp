@@ -51,7 +51,7 @@ void draw_mouse()
 
     // INPUT METHODS
     ImGui::Separator();
-    std::vector<std::string> input_methods = { "WIN32", "GHUB", "ARDUINO", "KMBOX" };
+    std::vector<std::string> input_methods = { "WIN32", "GHUB", "ARDUINO", "KMBOX", "RAWHID" };
 
     std::vector<const char*> method_items;
     method_items.reserve(input_methods.size());
@@ -254,6 +254,38 @@ void draw_mouse()
         {
             config.saveConfig();
             input_method_changed.store(true);
+        }
+    }
+    else if (config.input_method == "RAWHID")
+    {
+        ImGui::Text("HID Device Settings");
+
+        static char vid_hex[16];
+        static char pid_hex[16];
+        sprintf_s(vid_hex, "0x%04X", config.hid_vid);
+        sprintf_s(pid_hex, "0x%04X", config.hid_pid);
+
+        if (ImGui::InputText("VID", vid_hex, sizeof(vid_hex)))
+        {
+            config.hid_vid = std::strtoul(vid_hex, nullptr, 16);
+            config.saveConfig();
+            input_method_changed.store(true);
+        }
+
+        if (ImGui::InputText("PID", pid_hex, sizeof(pid_hex)))
+        {
+            config.hid_pid = std::strtoul(pid_hex, nullptr, 16);
+            config.saveConfig();
+            input_method_changed.store(true);
+        }
+
+        if (rawHidMouse && rawHidMouse->isOpen())
+        {
+            ImGui::TextColored(ImVec4(0, 255, 0, 255), "Raw HID device connected");
+        }
+        else
+        {
+            ImGui::TextColored(ImVec4(255, 0, 0, 255), "Raw HID device not connected");
         }
     }
 

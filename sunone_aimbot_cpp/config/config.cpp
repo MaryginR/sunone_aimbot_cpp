@@ -94,6 +94,10 @@ bool Config::loadConfig(const std::string& filename)
         kmbox_port = "COM0";
         kmbox_enable_keys = false;
 
+        // RawHID
+        hid_vid = 0x2341;
+        hid_pid = 0x8036;
+
         // Mouse shooting
         auto_shoot = false;
         bScope_multiplier = 1.0f;
@@ -191,6 +195,14 @@ bool Config::loadConfig(const std::string& filename)
         return ini.GetDoubleValue("", key, defval);
     };
 
+    auto get_hex = [&](const char* key, int defval)
+    {
+        std::string val = ini.GetValue("", key, "");
+        if (val.rfind("0x", 0) == 0 || val.rfind("0X", 0) == 0)
+            return static_cast<int>(std::stoul(val, nullptr, 16));
+        return defval;
+    };
+
     // Capture
     capture_method = get_string("capture_method", "duplication_api");
     detection_resolution = get_long("detection_resolution", 320);
@@ -239,6 +251,10 @@ bool Config::loadConfig(const std::string& filename)
     kmbox_baudrate = get_long("kmbox_baudrate", 115200);
     kmbox_port = get_string("kmbox_port", "COM0");
     kmbox_enable_keys = get_bool("kmbox_enable_keys", false);
+
+    // RawHID
+    hid_vid = get_hex("hid_vid", 0x2341);
+    hid_pid = get_hex("hid_pid", 0x8036);
 
     // Mouse shooting
     auto_shoot = get_bool("auto_shoot", false);
@@ -355,7 +371,7 @@ bool Config::saveConfig(const std::string& filename)
         << "easynorecoil = " << (easynorecoil ? "true" : "false") << "\n"
         << std::fixed << std::setprecision(1)
         << "easynorecoilstrength = " << easynorecoilstrength << "\n"
-        << "# WIN32, GHUB, ARDUINO\n"
+        << "# WIN32, GHUB, ARDUINO, RAWHID\n"
         << "input_method = " << input_method << "\n\n";
 
     // Wind mouse
@@ -378,6 +394,11 @@ bool Config::saveConfig(const std::string& filename)
         << "kmbox_baudrate = " << kmbox_baudrate << "\n"
         << "kmbox_port = " << kmbox_port << "\n"
         << "kmbox_enable_keys = " << (kmbox_enable_keys ? "true" : "false") << "\n\n";
+
+    // RawHID
+    file << "# RawHID\n"
+        << "hid_vid = 0x" << std::hex << std::uppercase << hid_vid << std::dec << "\n"
+        << "hid_pid = 0x" << std::hex << std::uppercase << hid_pid << std::dec << "\n\n";
 
     // Mouse shooting
     file << "# Mouse shooting\n"

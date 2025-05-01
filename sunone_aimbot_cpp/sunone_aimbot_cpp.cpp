@@ -23,6 +23,7 @@
 #include "other_tools.h"
 #include "optical_flow.h"
 #include "KmboxConnection.h"
+#include "RawHidMouse.h"
 
 std::condition_variable frameCV;
 std::atomic<bool> shouldExit(false);
@@ -38,6 +39,7 @@ Config config;
 GhubMouse* gHub = nullptr;
 SerialConnection* arduinoSerial = nullptr;
 KmboxConnection* kmboxSerial = nullptr;
+RawHidMouse* rawHidMouse = nullptr;
 
 OpticalFlow opticalFlow;
 
@@ -77,6 +79,12 @@ void initializeInputMethod()
             delete kmboxSerial;
             kmboxSerial = nullptr;
         }
+
+        if (rawHidMouse)
+        {
+            delete rawHidMouse;
+            rawHidMouse = nullptr;
+        }
     }
 
     if (config.input_method == "ARDUINO")
@@ -107,6 +115,11 @@ void initializeInputMethod()
             kmboxSerial = nullptr;
         }
     }
+    else if (config.input_method == "RAWHID")
+    {
+        std::cout << "[Mouse] Using RawHidMouse method input." << std::endl;
+        rawHidMouse = new RawHidMouse(static_cast<USHORT>(config.hid_vid), static_cast<USHORT>(config.hid_pid));
+    }
     else
     {
         std::cout << "[Mouse] Using default Win32 method input." << std::endl;
@@ -115,6 +128,7 @@ void initializeInputMethod()
     globalMouseThread->setSerialConnection(arduinoSerial);
     globalMouseThread->setGHubMouse(gHub);
     globalMouseThread->setKmboxConnection(kmboxSerial);
+    globalMouseThread->setRawHidMouse(rawHidMouse);
 }
 
 void handleEasyNoRecoil(MouseThread& mouseThread)
