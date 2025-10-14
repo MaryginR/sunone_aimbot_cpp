@@ -115,11 +115,6 @@ void SerialConnection::move(int x, int y)
     if (!is_open_)
         return;
 
-    if (x == 0 && y == 0)
-    {
-        return;
-    }
-
     if (config.arduino_16_bit_mouse)
     {
         std::string data = "m" + std::to_string(x) + "," + std::to_string(y) + "\n";

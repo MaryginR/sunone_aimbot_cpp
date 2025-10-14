@@ -12,15 +12,6 @@ void NMS(std::vector<Detection>& detections, float nmsThreshold, std::chrono::du
 {
     if (detections.empty()) return;
 
-    if (nmsThreshold <= 0.0f)
-    {
-        if (nmsTime)
-        {
-            *nmsTime = std::chrono::duration<double, std::milli>(0);
-        }
-        return;
-    }
-
     auto t0 = std::chrono::steady_clock::now();
 
     std::sort(

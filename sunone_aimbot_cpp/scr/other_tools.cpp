@@ -298,8 +298,6 @@ std::string get_ghub_version()
     {
         return line;
     }
-
-	return "unknown";
 }
 
 bool contains_tensorrt(const std::string& path)

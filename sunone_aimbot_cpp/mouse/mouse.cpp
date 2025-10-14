@@ -99,11 +99,6 @@ MouseThread::~MouseThread()
 
 void MouseThread::queueMove(int dx, int dy)
 {
-    if (dx == 0 && dy == 0)
-    {
-        return;
-    }
-
     std::lock_guard lg(queueMtx);
     if (moveQueue.size() >= queueLimit) moveQueue.pop();
     moveQueue.push({ dx,dy });
@@ -232,11 +227,6 @@ std::pair<double, double> MouseThread::predict_target_position(double target_x, 
 
 void MouseThread::sendMovementToDriver(int dx, int dy)
 {
-    if (dx == 0 && dy == 0)
-    {
-        return;
-    }
-
     std::lock_guard<std::mutex> lock(input_method_mutex);
 
     if (kmbox)
@@ -368,19 +358,8 @@ void MouseThread::moveMousePivot(double pivotX, double pivotY)
     int mx = static_cast<int>(mv.first);
     int my = static_cast<int>(mv.second);
 
-    if (mx == 0 && my == 0)
-    {
-        return;
-    }
-
-    if (wind_mouse_enabled)
-    {
-        windMouseMoveRelative(mx, my);
-    }
-    else
-    {
-        queueMove(mx, my);
-    }
+    if (wind_mouse_enabled)  windMouseMoveRelative(mx, my);
+    else                     queueMove(mx, my);
 }
 
 void MouseThread::pressMouse(const AimbotTarget& target)
