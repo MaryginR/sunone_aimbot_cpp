@@ -44,18 +44,18 @@ std::string GetDMLDeviceName(int deviceId)
 
 DirectMLDetector::DirectMLDetector(const std::string& model_path)
     :
-    env(ORT_LOGGING_LEVEL_WARNING, "DML_Detector"),
+    env(ORT_LOGGING_LEVEL_ERROR, "DML_Detector"),
     memory_info(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault))
 {
+    session_options.SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
+    session_options.SetIntraOpNumThreads(std::thread::hardware_concurrency());
+
     Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_DML(session_options, config.dml_device_id));
+
+    initializeModel(model_path);
 
     if (config.verbose)
         std::cout << "[DirectML] Using adapter: " << GetDMLDeviceName(config.dml_device_id) << std::endl;
-
-    session_options.SetExecutionMode(ExecutionMode::ORT_PARALLEL);
-    session_options.SetIntraOpNumThreads(std::thread::hardware_concurrency());
-
-    initializeModel(model_path);
 }
 
 DirectMLDetector::~DirectMLDetector()
@@ -68,6 +68,10 @@ void DirectMLDetector::initializeModel(const std::string& model_path)
 {
     std::wstring model_path_wide(model_path.begin(), model_path.end());
     session = Ort::Session(env, model_path_wide.c_str(), session_options);
+
+    auto providers = Ort::GetAvailableProviders();
+    std::cout << "[DML] Available providers:" << std::endl;
+    for (auto& p : providers) std::cout << "  " << p << std::endl;
 
     input_name = session.GetInputNameAllocated(0, allocator).get();
     output_name = session.GetOutputNameAllocated(0, allocator).get();
