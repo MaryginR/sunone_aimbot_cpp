@@ -46,6 +46,9 @@ public:
 
     bool easynorecoil;
     float easynorecoilstrength;
+    float easynorecoil_offsetY;        // Максимальное смещение по оси Y
+    float easynorecoil_increaseSpeed;  // Скорость увеличения смещения
+    float easynorecoil_returnSpeed;    // Скорость возврата
     std::string input_method; // "WIN32", "GHUB", "ARDUINO", "KMBOX_B", "KMBOX_NET"
 
     // Wind mouse
@@ -104,6 +107,9 @@ public:
     std::vector<std::string> button_open_overlay;
     bool enable_arrows_settings;
 
+    std::vector<std::string> bind_keys;       // e.g. "F1", "F2", "Mouse4"
+    std::vector<std::string> bind_filenames;  // e.g. "binds/sniper.ini", "binds/recoil.ini"
+
     // Overlay
     int overlay_opacity;
     bool overlay_snow_theme;
@@ -140,17 +146,17 @@ public:
     }
 
     // Custom Classes
-    int class_player;                  // 0
-    int class_bot;                     // 1
-    int class_weapon;                  // 2
-    int class_outline;                 // 3
-    int class_dead_body;               // 4
-    int class_hideout_target_human;    // 5
-    int class_hideout_target_balls;    // 6
-    int class_head;                    // 7
-    int class_smoke;                   // 8
-    int class_fire;                    // 9
-    int class_third_person;            // 10
+    std::vector<int> class_player;               //0
+    std::vector<int> class_bot;                  //1
+    std::vector<int> class_weapon;               //2
+    std::vector<int> class_outline;              //3
+    std::vector<int> class_dead_body;            //4
+    std::vector<int> class_hideout_target_human; //5
+    std::vector<int> class_hideout_target_balls; //6
+    std::vector<int> class_head;                 //7
+    std::vector<int> class_smoke;                //8
+    std::vector<int> class_fire;                 //9
+    std::vector<int> class_third_person;         //10
 
     // Debug
     bool show_window;
@@ -174,6 +180,12 @@ public:
 
     const GameProfile & currentProfile() const;
     std::pair<double, double> degToCounts(double degX, double degY, double fovNow) const;
+
+    // helper для получения списка файлов биндов в папке
+    std::vector<std::string> listBindFiles(const std::string& folder = "binds") const;
+
+    // new: apply only fields from ini file into current config (partial update)
+    bool applyPartialConfigFile(const std::string& filename);
 
     bool loadConfig(const std::string& filename = "config.ini");
     bool saveConfig(const std::string& filename = "config.ini");

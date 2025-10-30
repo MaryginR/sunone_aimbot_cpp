@@ -15,6 +15,7 @@
 #include "SerialConnection.h"
 #include "sunone_aimbot_cpp.h"
 #include "ghub.h"
+#include <keycodes.h>
 
 MouseThread::MouseThread(
     int resolution,
@@ -363,6 +364,45 @@ void MouseThread::moveMousePivot(double pivotX, double pivotY)
 
     double predX = pivotX + vx * prediction_interval + vx * 0.002;
     double predY = pivotY + vy * prediction_interval + vy * 0.002;
+
+    bool isShooting = false;
+    static float currentYOffset = 0.0f;
+
+    /*if (!config.auto_shoot)
+    {*/
+        // Проверяем все кнопки, которые указал пользователь
+        for (const auto& shootKeyName : config.button_shoot)
+        {
+            if (shootKeyName == "None") continue;
+            int vk = KeyCodes::getKeyCode(shootKeyName);
+            if (vk != -1 && (GetAsyncKeyState(vk) & 0x8000))
+            {
+                isShooting = true;
+                break;
+            }
+        }
+    /*}*/
+
+    if (isShooting)
+    {
+        // если стреляем — смещение нарастает
+        currentYOffset += config.easynorecoil_increaseSpeed * dt * 50.0f;
+        if (currentYOffset > config.easynorecoil_offsetY)
+            currentYOffset = config.easynorecoil_offsetY;
+    }
+    else
+    {
+        // если не стреляем — смещение плавно возвращается
+        currentYOffset -= config.easynorecoil_returnSpeed * dt * 50.0f;
+        if (currentYOffset < 0.0f)
+            currentYOffset = 0.0f;
+    }
+
+    // применяем смещение к Y-координате
+    if (config.easynorecoil)
+    {
+        predY += currentYOffset;
+    }
 
     auto mv = calc_movement(predX, predY);
     int mx = static_cast<int>(mv.first);

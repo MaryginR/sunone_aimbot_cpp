@@ -197,6 +197,72 @@ void keyboardListener()
             }
         }
         
+        // bind handling: если нажата одна из клавиш bind_keys -> применяем соответствующий файл
+        for (size_t i = 0; i < config.bind_keys.size(); ++i)
+        {
+            const auto& keyName = config.bind_keys[i];
+            if (keyName == "None" || keyName.empty()) continue;
+
+            // проверяем нажатие
+            int vk = KeyCodes::getKeyCode(keyName);
+            bool pressed = false;
+            if (vk != -1 && (GetAsyncKeyState(vk) & 0x8000)) pressed = true;
+
+            // также проверка для kmboxNetSerial / arduino — опционально (как в isAnyKeyPressed)
+            if (!pressed && kmboxNetSerial && kmboxNetSerial->isOpen())
+            {
+                // при использовании mouse keys (пример)
+                if (keyName == "LeftMouseButton") pressed = kmboxNetSerial->monitorMouseLeft() == 1;
+                else if (keyName == "RightMouseButton") pressed = kmboxNetSerial->monitorMouseRight() == 1;
+                else if (keyName == "X1MouseButton") pressed = kmboxNetSerial->monitorMouseSide1() == 1;
+                else if (keyName == "X2MouseButton") pressed = kmboxNetSerial->monitorMouseSide2() == 1;
+            }
+
+            static std::vector<bool> prevBindState;
+            if (prevBindState.size() < config.bind_keys.size()) prevBindState.resize(config.bind_keys.size(), false);
+
+            if (pressed && !prevBindState[i])
+            {
+                // rising edge -> load bind file if задан
+                if (i < config.bind_filenames.size())
+                {
+                    const std::string& fname = config.bind_filenames[i];
+                    if (!fname.empty() && fname != "None" && std::filesystem::exists(fname))
+                    {
+                        bool ok = config.applyPartialConfigFile(fname);
+                        if (ok)
+                        {
+                            // Option 1: сохранить в main config.ini (если хочешь)
+                            config.saveConfig();
+
+                            // Перезапустить/обновить компоненты которые зависят от изменённых параметров
+                            detection_resolution_changed.store(true);
+                            input_method_changed.store(true);
+
+                            if (globalMouseThread)
+                            {
+                                globalMouseThread->updateConfig(
+                                    config.detection_resolution,
+                                    config.fovX,
+                                    config.fovY,
+                                    config.minSpeedMultiplier,
+                                    config.maxSpeedMultiplier,
+                                    config.predictionInterval,
+                                    config.auto_shoot,
+                                    config.bScope_multiplier
+                                );
+                            }
+
+                            std::cout << "[BIND] Applied bind file: " << fname << std::endl;
+                        }
+                    }
+                }
+            }
+
+            prevBindState[i] = pressed;
+        }
+
+
         // Update previous key states
         prevUpArrow = upArrow;
         prevDownArrow = downArrow;

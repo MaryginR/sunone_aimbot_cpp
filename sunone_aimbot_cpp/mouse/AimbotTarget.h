@@ -14,6 +14,8 @@ public:
     double pivotY;
 
     AimbotTarget(int x, int y, int w, int h, int classId, double pivotX = 0.0, double pivotY = 0.0);
+
+    bool isClassMatch(int detectedClass, const std::vector<int>& targetClasses);
 };
 
 AimbotTarget* sortTargets(

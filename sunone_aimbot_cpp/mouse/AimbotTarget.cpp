@@ -11,6 +11,14 @@
 #include "AimbotTarget.h"
 #include "config.h"
 
+bool isClassMatch(int detectedClass, const std::vector<int>& targetClasses)
+{
+    for (int c : targetClasses)
+        if (detectedClass == c)
+            return true;
+    return false;
+}
+
 AimbotTarget::AimbotTarget(int x_, int y_, int w_, int h_, int cls, double px, double py)
     : x(x_), y(y_), w(w_), h(h_), classId(cls), pivotX(px), pivotY(py)
 {
@@ -27,7 +35,7 @@ AimbotTarget* sortTargets(
     {
         return nullptr;
     }
-
+    
     cv::Point center(screenWidth / 2, screenHeight / 2);
 
     double minDistance = std::numeric_limits<double>::max();
@@ -38,7 +46,7 @@ AimbotTarget* sortTargets(
     {
         for (size_t i = 0; i < boxes.size(); i++)
         {
-            if (classes[i] == config.class_head)
+            if (isClassMatch(classes[i], config.class_head))
             {
                 int headOffsetY = static_cast<int>(boxes[i].height * config.head_y_offset);
                 cv::Point targetPoint(boxes[i].x + boxes[i].width / 2, boxes[i].y + headOffsetY);
@@ -58,14 +66,14 @@ AimbotTarget* sortTargets(
         minDistance = std::numeric_limits<double>::max();
         for (size_t i = 0; i < boxes.size(); i++)
         {
-            if (disableHeadshot && classes[i] == config.class_head)
+            if (disableHeadshot && isClassMatch(classes[i], config.class_head))
                 continue;
 
-            if (classes[i] == config.class_player ||
-                classes[i] == config.class_bot ||
-                (classes[i] == config.class_hideout_target_human && config.shooting_range_targets) ||
-                (classes[i] == config.class_hideout_target_balls && config.shooting_range_targets) ||
-                (classes[i] == config.class_third_person && !config.ignore_third_person))
+            if (isClassMatch(classes[i], config.class_player) ||
+                isClassMatch(classes[i], config.class_bot) ||
+                (isClassMatch(classes[i], config.class_hideout_target_human) && config.shooting_range_targets) ||
+                (isClassMatch(classes[i], config.class_hideout_target_balls) && config.shooting_range_targets) ||
+                (isClassMatch(classes[i], config.class_third_person) && !config.ignore_third_person))
             {
                 int offsetY = static_cast<int>(boxes[i].height * config.body_y_offset);
                 cv::Point targetPoint(boxes[i].x + boxes[i].width / 2, boxes[i].y + offsetY);
@@ -86,7 +94,7 @@ AimbotTarget* sortTargets(
     }
 
     int finalY = 0;
-    if (classes[nearestIdx] == config.class_head)
+    if (isClassMatch(classes[nearestIdx], config.class_head))
     {
         int headOffsetY = static_cast<int>(boxes[nearestIdx].height * config.head_y_offset);
         finalY = boxes[nearestIdx].y + headOffsetY - boxes[nearestIdx].height / 2;

@@ -270,6 +270,14 @@ void draw_mouse()
         {
             ImGui::TextColored(ImVec4(255, 255, 0, 255), "WARNING: High recoil strength may be detected.");
         }
+
+        // --- Дополнительные параметры Easy No Recoil ---
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Advanced No Recoil Offset Control");
+        ImGui::SliderFloat("Max Y Offset", &config.easynorecoil_offsetY, -100.0f, 100.0f, "%.1f");
+        ImGui::SliderFloat("Increase Speed", &config.easynorecoil_increaseSpeed, 0.1f, 10.0f, "%.2f");
+        ImGui::SliderFloat("Return Speed", &config.easynorecoil_returnSpeed, 0.1f, 10.0f, "%.2f");
+        ImGui::TextDisabled("OffsetY defines target shift, speeds control how fast it changes/returns.");
     }
 
     ImGui::SeparatorText("Auto Shoot");
