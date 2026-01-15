@@ -397,6 +397,68 @@ void draw_buttons()
         ++i;
     }
 
+    ImGui::Separator();
+    ImGui::Text("Config Binds (quick load)");
+
+    // Список файлов в папке binds
+    auto bindFiles = config.listBindFiles("binds");
+    std::vector<const char*> bindFilesCStr;
+    bindFilesCStr.reserve(bindFiles.size() + 1);
+    bindFilesCStr.push_back("None");
+    for (auto& f : bindFiles) bindFilesCStr.push_back(f.c_str());
+
+    for (size_t i = 0; i < std::max<size_t>(1, config.bind_keys.size()); ++i)
+    {
+        std::string keyName = (i < config.bind_keys.size() ? config.bind_keys[i] : std::string("None"));
+        std::string fileName = (i < config.bind_filenames.size() ? config.bind_filenames[i] : std::string("None"));
+
+        // key combo (reuse key_names_cstrs / key_names used elsewhere)
+        int curKeyIndex = 0;
+        for (size_t k = 0; k < key_names.size(); ++k) if (key_names[k] == keyName) curKeyIndex = (int)k;
+        std::string label = "Bind Key " + std::to_string(i);
+        if (ImGui::Combo(label.c_str(), &curKeyIndex, key_names_cstrs.data(), (int)key_names_cstrs.size()))
+        {
+            if (i < config.bind_keys.size()) config.bind_keys[i] = key_names[curKeyIndex];
+            else { config.bind_keys.resize(i + 1); config.bind_keys[i] = key_names[curKeyIndex]; }
+            config.saveConfig();
+        }
+
+        ImGui::SameLine();
+        // file combo
+        int curFileIndex = 0;
+        for (size_t k = 0; k < bindFiles.size(); ++k) {
+            if (i < config.bind_filenames.size() && config.bind_filenames[i] == bindFiles[k]) { curFileIndex = (int)k + 1; break; }
+        }
+        std::string fileLabel = "Bind File " + std::to_string(i);
+        if (ImGui::Combo(fileLabel.c_str(), &curFileIndex, bindFilesCStr.data(), (int)bindFilesCStr.size()))
+        {
+            std::string chosen = (curFileIndex == 0 ? std::string("None") : std::string(bindFiles[curFileIndex - 1]));
+            if (i < config.bind_filenames.size()) config.bind_filenames[i] = chosen;
+            else { config.bind_filenames.resize(i + 1); config.bind_filenames[i] = chosen; }
+            config.saveConfig();
+        }
+
+        ImGui::SameLine();
+        std::string removeLabel = "Remove##bind" + std::to_string(i);
+        if (ImGui::Button(removeLabel.c_str()))
+        {
+            if (i < config.bind_keys.size()) config.bind_keys.erase(config.bind_keys.begin() + i);
+            if (i < config.bind_filenames.size()) config.bind_filenames.erase(config.bind_filenames.begin() + i);
+            config.saveConfig();
+            continue;
+        }
+    }
+
+    // Add bind button
+    if (ImGui::Button("Add Bind"))
+    {
+        config.bind_keys.push_back("None");
+        config.bind_filenames.push_back("None");
+        config.saveConfig();
+    }
+
+    ImGui::Separator();
+
     if (ImGui::Button("Add button##overlay"))
     {
         config.button_open_overlay.push_back("None");

@@ -17,6 +17,7 @@
 
 #include "AimbotTarget.h"
 #include "SerialConnection.h"
+#include "MidiConnection.h"
 #include "Kmbox_b.h"
 #include "KmboxNetConnection.h"
 #include "ghub.h"
@@ -45,6 +46,7 @@ private:
     std::atomic<bool> mouse_pressed{ false };
 
     SerialConnection* serial;
+    MidiConnection* midi;
     Kmbox_b_Connection* kmbox;
     KmboxNetConnection* kmbox_net;
     GhubMouse* gHub;
@@ -63,6 +65,8 @@ private:
     std::vector<std::pair<double, double>> futurePositions;
     std::mutex                    futurePositionsMutex;
 
+    std::atomic<float> recoilYOffset;
+
     void moveWorkerLoop();
     void queueMove(int dx, int dy);
 
@@ -73,8 +77,22 @@ private:
     std::pair<double, double> calc_movement(double target_x, double target_y);
     double calculate_speed_multiplier(double distance);
 
+    std::chrono::steady_clock::time_point last_user_move_time;
+    std::chrono::steady_clock::time_point last_limit_reset_time;
+    std::atomic<bool> limit_timer_active{ false };
+    std::atomic<double> current_move_distance{ 0.0 };
+    std::atomic<double> remaining_aim_distance{ 0.0 };
+    std::atomic<bool> user_move_valid{ false };
+
+    // raw input
+    HWND rawInputHwnd = nullptr;
+
 public:
     std::mutex input_method_mutex;
+
+    void initRawInput(HWND hwnd);
+    void processRawInput(LPARAM lParam);
+    bool canStartAiming();
 
     MouseThread(
         int  resolution,
@@ -86,6 +104,7 @@ public:
         bool auto_shoot,
         float bScope_multiplier,
         SerialConnection* serialConnection = nullptr,
+        MidiConnection* midiConnection = nullptr,
         GhubMouse* gHubMouse = nullptr,
         Kmbox_b_Connection* kmboxConnection = nullptr,
         KmboxNetConnection* Kmbox_Net_Connection = nullptr
@@ -117,8 +136,11 @@ public:
     void storeFuturePositions(const std::vector<std::pair<double, double>>& positions);
     void clearFuturePositions();
     std::vector<std::pair<double, double>> getFuturePositions();
+    float getRecoilOffset() const { return recoilYOffset.load(std::memory_order_relaxed); };
+    void setRecoilOffset(float value) { recoilYOffset.store(value, std::memory_order_relaxed); };
 
     void setSerialConnection(SerialConnection* newSerial);
+    void setMidiConnection(MidiConnection* newMidi);
     void setKmboxConnection(Kmbox_b_Connection* newKmbox);
     void setKmboxNetConnection(KmboxNetConnection* newKmbox_net);
     void setGHubMouse(GhubMouse* newGHub);

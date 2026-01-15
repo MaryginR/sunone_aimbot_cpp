@@ -46,6 +46,9 @@ public:
 
     bool easynorecoil;
     float easynorecoilstrength;
+    float easynorecoil_offsetY;        // Максимальное смещение по оси Y
+    float easynorecoil_increaseSpeed;  // Скорость увеличения смещения
+    float easynorecoil_returnSpeed;    // Скорость возврата
     std::string input_method; // "WIN32", "GHUB", "ARDUINO", "KMBOX_B", "KMBOX_NET"
 
     // Wind mouse
@@ -54,12 +57,20 @@ public:
     float wind_W;
     float wind_M;
     float wind_D;
+    bool starts_after_mouse_move;
+    int move_timeout;
+    int min_mouse_move_length;
+    int aim_timeout;
+    int max_aim_distance;
 
     // Arduino
     int arduino_baudrate;
     std::string arduino_port;
     bool arduino_16_bit_mouse;
     bool arduino_enable_keys;
+
+    // MIDI
+    std::string midi_device_name;
 
     // kmbox_b
     int kmbox_b_baudrate;
@@ -104,23 +115,58 @@ public:
     std::vector<std::string> button_open_overlay;
     bool enable_arrows_settings;
 
+    std::vector<std::string> bind_keys;       // e.g. "F1", "F2", "Mouse4"
+    std::vector<std::string> bind_filenames;  // e.g. "binds/sniper.ini", "binds/recoil.ini"
+
     // Overlay
     int overlay_opacity;
     bool overlay_snow_theme;
     float overlay_ui_scale;
 
+    // Game Overlay
+    bool game_overlay_enabled;
+    int game_overlay_max_fps;
+    bool game_overlay_draw_boxes;
+    bool game_overlay_draw_future;
+    int game_overlay_box_a;
+    int game_overlay_box_r;
+    int game_overlay_box_g;
+    int game_overlay_box_b;
+    float game_overlay_box_thickness;
+    float game_overlay_future_point_radius;
+    float game_overlay_future_alpha_falloff;
+
+    bool game_overlay_icon_enabled;
+    std::string game_overlay_icon_path;
+    int game_overlay_icon_width;
+    int game_overlay_icon_height;
+    float game_overlay_icon_offset_x;
+    float game_overlay_icon_offset_y;
+    std::string game_overlay_icon_anchor; // "center", "top", "bottom", "head"
+
+    bool show_recoil_indicator;
+
+    void clampGameOverlayColor()
+    {
+        auto clamp255 = [](int& v) { if (v < 0) v = 0; if (v > 255) v = 255; };
+        clamp255(game_overlay_box_a);
+        clamp255(game_overlay_box_r);
+        clamp255(game_overlay_box_g);
+        clamp255(game_overlay_box_b);
+    }
+
     // Custom Classes
-    int class_player;                  // 0
-    int class_bot;                     // 1
-    int class_weapon;                  // 2
-    int class_outline;                 // 3
-    int class_dead_body;               // 4
-    int class_hideout_target_human;    // 5
-    int class_hideout_target_balls;    // 6
-    int class_head;                    // 7
-    int class_smoke;                   // 8
-    int class_fire;                    // 9
-    int class_third_person;            // 10
+    std::vector<int> class_player;               //0
+    std::vector<int> class_bot;                  //1
+    std::vector<int> class_weapon;               //2
+    std::vector<int> class_outline;              //3
+    std::vector<int> class_dead_body;            //4
+    std::vector<int> class_hideout_target_human; //5
+    std::vector<int> class_hideout_target_balls; //6
+    std::vector<int> class_head;                 //7
+    std::vector<int> class_smoke;                //8
+    std::vector<int> class_fire;                 //9
+    std::vector<int> class_third_person;         //10
 
     // Debug
     bool show_window;
@@ -144,6 +190,12 @@ public:
 
     const GameProfile & currentProfile() const;
     std::pair<double, double> degToCounts(double degX, double degY, double fovNow) const;
+
+    // helper для получения списка файлов биндов в папке
+    std::vector<std::string> listBindFiles(const std::string& folder = "binds") const;
+
+    // new: apply only fields from ini file into current config (partial update)
+    bool applyPartialConfigFile(const std::string& filename);
 
     bool loadConfig(const std::string& filename = "config.ini");
     bool saveConfig(const std::string& filename = "config.ini");

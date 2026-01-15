@@ -40,6 +40,35 @@ std::string Config::joinStrings(const std::vector<std::string>& vec, const std::
     return oss.str();
 }
 
+static std::vector<int> parseClassList(const std::string value)
+{
+    std::vector<int> result;
+    std::stringstream ss(value);
+    std::string token;
+
+    while (std::getline(ss, token, ','))
+    {
+        try {
+            int v = std::stoi(token);
+            result.push_back(v);
+        }
+        catch (...) {}
+    }
+
+    return result;
+}
+
+static std::string joinKeyFilePairs(const std::vector<std::string>& keys, const std::vector<std::string>& files)
+{
+    std::ostringstream oss;
+    size_t n = (((keys.size()) < (files.size())) ? (keys.size()) : (files.size()));
+    for (size_t i = 0; i < n; i++) {
+        if (i) oss << ",";
+        oss << keys[i] << ":" << files[i];
+    }
+    return oss.str();
+}
+
 bool Config::loadConfig(const std::string& filename)
 {
     if (!std::filesystem::exists(filename))
@@ -83,6 +112,9 @@ bool Config::loadConfig(const std::string& filename)
 
         easynorecoil = false;
         easynorecoilstrength = 0.0f;
+        easynorecoil_offsetY = 0.0f;        // Максимальное смещение по оси Y
+        easynorecoil_increaseSpeed = 1.0f;  // Скорость увеличения смещения
+        easynorecoil_returnSpeed = 1.0f;    // Скорость возврата
         input_method = "WIN32";
 
         // Wind mouse
@@ -91,12 +123,20 @@ bool Config::loadConfig(const std::string& filename)
         wind_W = 15.0f;
         wind_M = 10.0f;
         wind_D = 8.0f;
+        starts_after_mouse_move = false;
+        move_timeout = 10;
+        min_mouse_move_length = 1;
+        aim_timeout = 10;
+        max_aim_distance = 1;
 
         // Arduino
         arduino_baudrate = 115200;
         arduino_port = "COM0";
         arduino_16_bit_mouse = false;
         arduino_enable_keys = false;
+
+        // MIDI
+        midi_device_name = "";
 
         // kmbox_B
         kmbox_b_baudrate = 115200;
@@ -158,18 +198,41 @@ bool Config::loadConfig(const std::string& filename)
         overlay_snow_theme = true;
         overlay_ui_scale = 1.0f;
 
+        // Game overlay
+        game_overlay_enabled = false;
+        game_overlay_max_fps = 0;
+        game_overlay_draw_boxes = true;
+        game_overlay_draw_future = true;
+        game_overlay_box_a = 255;
+        game_overlay_box_r = 0;
+        game_overlay_box_g = 255;
+        game_overlay_box_b = 0;
+        game_overlay_box_thickness = 2.0f;
+        game_overlay_future_point_radius = 5.0f;
+        game_overlay_future_alpha_falloff = 1.0f;
+
+        game_overlay_icon_enabled = false;
+        game_overlay_icon_path = "icon.png";
+        game_overlay_icon_width = 64;
+        game_overlay_icon_height = 64;
+        game_overlay_icon_offset_x = 0.0f;
+        game_overlay_icon_offset_y = 0.0f;
+        game_overlay_icon_anchor = "center";
+
+        show_recoil_indicator = false;
+
         // Custom classes
-        class_player = 0;
-        class_bot = 1;
-        class_weapon = 2;
-        class_outline = 3;
-        class_dead_body = 4;
-        class_hideout_target_human = 5;
-        class_hideout_target_balls = 6;
-        class_head = 7;
-        class_smoke = 8;
-        class_fire = 9;
-        class_third_person = 10;
+        class_player = { 0 };
+        class_bot = { 1 };
+        class_weapon = { 2 };
+        class_outline = { 3 };
+        class_dead_body = { 4 };
+        class_hideout_target_human = { 5 };
+        class_hideout_target_balls = { 6 };
+        class_head = { 7 };
+        class_smoke = { 8 };
+        class_fire = { 9 };
+        class_third_person = { 10 };
 
         // Debug
         show_window = true;
@@ -300,6 +363,9 @@ bool Config::loadConfig(const std::string& filename)
 
     easynorecoil = get_bool("easynorecoil", false);
     easynorecoilstrength = (float)get_double("easynorecoilstrength", 0.0);
+    easynorecoil_offsetY = (float)get_double("easynorecoil_offsetY", 0.0);
+    easynorecoil_increaseSpeed = (float)get_double("easynorecoil_increaseSpeed", 1.0);
+    easynorecoil_returnSpeed = (float)get_double("easynorecoil_returnSpeed", 1.0);
     input_method = get_string("input_method", "WIN32");
 
     // Wind mouse
@@ -308,12 +374,20 @@ bool Config::loadConfig(const std::string& filename)
     wind_W = (float)get_double("wind_W", 15.0f);
     wind_M = (float)get_double("wind_M", 10.0f);
     wind_D = (float)get_double("wind_D", 8.0f);
+    starts_after_mouse_move = get_bool("starts_after_mouse_move", false);
+    move_timeout = (int)get_double("move_timeout", 10);
+    min_mouse_move_length = (int)get_double("min_mouse_move_length", 1);
+    aim_timeout = (int)get_double("aim_timeout", 10);
+    max_aim_distance = (int)get_double("max_aim_distance", 1);
 
     // Arduino
     arduino_baudrate = get_long("arduino_baudrate", 115200);
     arduino_port = get_string("arduino_port", "COM0");
     arduino_16_bit_mouse = get_bool("arduino_16_bit_mouse", false);
     arduino_enable_keys = get_bool("arduino_enable_keys", false);
+
+    // MIDI
+    midi_device_name = get_string("midi_device_name", "");
 
     // kmbox_B
     kmbox_b_baudrate = get_long("kmbox_baudrate", 115200);
@@ -374,23 +448,66 @@ bool Config::loadConfig(const std::string& filename)
     button_open_overlay = splitString(get_string("button_open_overlay", "Home"));
     enable_arrows_settings = get_bool("enable_arrows_settings", false);
 
+    std::string binds_line = get_string("binds", "");
+    bind_keys.clear(); bind_filenames.clear();
+    if (!binds_line.empty()) {
+        auto pairs = splitString(binds_line, ',');
+        for (auto& p : pairs) {
+            auto colon = p.find(':');
+            if (colon != std::string::npos) {
+                std::string k = p.substr(0, colon);
+                std::string f = p.substr(colon + 1);
+                // trim
+                while (!k.empty() && isspace((unsigned char)k.front())) k.erase(k.begin());
+                while (!k.empty() && isspace((unsigned char)k.back())) k.pop_back();
+                while (!f.empty() && isspace((unsigned char)f.front())) f.erase(f.begin());
+                while (!f.empty() && isspace((unsigned char)f.back())) f.pop_back();
+                bind_keys.push_back(k);
+                bind_filenames.push_back(f);
+            }
+        }
+    }
+
     // Overlay
     overlay_opacity = get_long("overlay_opacity", 225);
     overlay_snow_theme = get_bool("overlay_snow_theme", true);
     overlay_ui_scale = (float)get_double("overlay_ui_scale", 1.0);
 
+    game_overlay_enabled = get_bool("game_overlay_enabled", false);
+    game_overlay_max_fps = get_long("game_overlay_max_fps", 0);
+    game_overlay_draw_boxes = get_bool("game_overlay_draw_boxes", true);
+    game_overlay_draw_future = get_bool("game_overlay_draw_future", true);
+    game_overlay_box_a = get_long("game_overlay_box_a", 255);
+    game_overlay_box_r = get_long("game_overlay_box_r", 0);
+    game_overlay_box_g = get_long("game_overlay_box_g", 255);
+    game_overlay_box_b = get_long("game_overlay_box_b", 0);
+    game_overlay_box_thickness = (float)get_double("game_overlay_box_thickness", 2.0);
+    game_overlay_future_point_radius = (float)get_double("game_overlay_future_point_radius", 5.0);
+    game_overlay_future_alpha_falloff = (float)get_double("game_overlay_future_alpha_falloff", 1.0);
+    clampGameOverlayColor();
+
+    game_overlay_icon_enabled = get_bool("game_overlay_icon_enabled", false);
+    game_overlay_icon_path = get_string("game_overlay_icon_path", "icon.png");
+    game_overlay_icon_width = get_long("game_overlay_icon_width", 64);
+    game_overlay_icon_height = get_long("game_overlay_icon_height", 64);
+    game_overlay_icon_offset_x = (float)get_double("game_overlay_icon_offset_x", 0.0f);
+    game_overlay_icon_offset_y = (float)get_double("game_overlay_icon_offset_y", 0.0f);
+    game_overlay_icon_anchor = get_string("game_overlay_icon_anchor", "center");
+
+    show_recoil_indicator = get_bool("show_recoil_indicator", false);
+
     // Custom Classes
-    class_player = get_long("class_player", 0);
-    class_bot = get_long("class_bot", 1);
-    class_weapon = get_long("class_weapon", 2);
-    class_outline = get_long("class_outline", 3);
-    class_dead_body = get_long("class_dead_body", 4);
-    class_hideout_target_human = get_long("class_hideout_target_human", 5);
-    class_hideout_target_balls = get_long("class_hideout_target_balls", 6);
-    class_head = get_long("class_head", 7);
-    class_smoke = get_long("class_smoke", 8);
-    class_fire = get_long("class_fire", 9);
-    class_third_person = get_long("class_third_person", 10);
+    class_player = parseClassList(get_string("class_player", "0"));
+    class_bot = parseClassList(get_string("class_bot", "1"));
+    class_weapon = parseClassList(get_string("class_weapon", "2"));
+    class_outline = parseClassList(get_string("class_outline", "3"));
+    class_dead_body = parseClassList(get_string("class_dead_body", "4"));
+    class_hideout_target_human = parseClassList(get_string("class_hideout_target_human", "5"));
+    class_hideout_target_balls = parseClassList(get_string("class_hideout_target_balls", "6"));
+    class_head = parseClassList(get_string("class_head", "7"));
+    class_smoke = parseClassList(get_string("class_smoke", "8"));
+    class_fire = parseClassList(get_string("class_fire", "9"));
+    class_third_person = parseClassList(get_string("class_third_person", "10"));
 
     // Debug window
     show_window = get_bool("show_window", true);
@@ -458,6 +575,11 @@ bool Config::saveConfig(const std::string& filename)
         << std::fixed << std::setprecision(1)
         << "easynorecoilstrength = " << easynorecoilstrength << "\n"
 
+        << std::fixed << std::setprecision(2)
+        << "easynorecoil_offsetY = " << easynorecoil_offsetY << "\n"
+        << "easynorecoil_increaseSpeed = " << easynorecoil_increaseSpeed << "\n"
+        << "easynorecoil_returnSpeed = " << easynorecoil_returnSpeed << "\n"
+
         << "# WIN32, GHUB, ARDUINO, KMBOX_B, KMBOX_NET\n"
         << "input_method = " << input_method << "\n\n";
 
@@ -467,7 +589,12 @@ bool Config::saveConfig(const std::string& filename)
         << "wind_G = " << wind_G << "\n"
         << "wind_W = " << wind_W << "\n"
         << "wind_M = " << wind_M << "\n"
-        << "wind_D = " << wind_D << "\n\n";
+        << "wind_D = " << wind_D << "\n"
+        << "starts_after_mouse_move = " << starts_after_mouse_move << "\n"
+        << "move_timeout = " << move_timeout << "\n"
+        << "min_mouse_move_length = " << min_mouse_move_length << "\n"
+        << "aim_timeout = " << aim_timeout << "\n"
+        << "max_aim_distance = " << max_aim_distance << "\n\n";
 
     // Arduino
     file << "# Arduino\n"
@@ -475,6 +602,10 @@ bool Config::saveConfig(const std::string& filename)
         << "arduino_port = " << arduino_port << "\n"
         << "arduino_16_bit_mouse = " << (arduino_16_bit_mouse ? "true" : "false") << "\n"
         << "arduino_enable_keys = " << (arduino_enable_keys ? "true" : "false") << "\n\n";
+
+    // MIDI
+    file << "# MIDI\n"
+        << "midi_device_name = " << midi_device_name << "\n\n";
 
     // kmbox_B
     file << "# Kmbox_B\n"
@@ -510,7 +641,7 @@ bool Config::saveConfig(const std::string& filename)
         << "export_enable_fp16 = " << (export_enable_fp16 ? "true" : "false") << "\n"
 #endif
         << "fixed_input_size = " << (fixed_input_size ? "true" : "false") << "\n";
-    
+
     // CUDA
 #ifdef USE_CUDA
     file << "\n# CUDA\n"
@@ -527,6 +658,7 @@ bool Config::saveConfig(const std::string& filename)
         << "button_pause = " << joinStrings(button_pause) << "\n"
         << "button_reload_config = " << joinStrings(button_reload_config) << "\n"
         << "button_open_overlay = " << joinStrings(button_open_overlay) << "\n"
+        << "binds = " << joinKeyFilePairs(bind_keys, bind_filenames) << "\n"
         << "enable_arrows_settings = " << (enable_arrows_settings ? "true" : "false") << "\n\n";
 
     // Overlay
@@ -536,19 +668,55 @@ bool Config::saveConfig(const std::string& filename)
         << std::fixed << std::setprecision(2)
         << "overlay_ui_scale = " << overlay_ui_scale << "\n\n";
 
+    file << "# Game Overlay\n"
+        << "game_overlay_enabled = " << (game_overlay_enabled ? "true" : "false") << "\n"
+        << "game_overlay_max_fps = " << game_overlay_max_fps << "\n"
+        << "game_overlay_draw_boxes = " << (game_overlay_draw_boxes ? "true" : "false") << "\n"
+        << "game_overlay_draw_future = " << (game_overlay_draw_future ? "true" : "false") << "\n"
+        << "game_overlay_box_a = " << game_overlay_box_a << "\n"
+        << "game_overlay_box_r = " << game_overlay_box_r << "\n"
+        << "game_overlay_box_g = " << game_overlay_box_g << "\n"
+        << "game_overlay_box_b = " << game_overlay_box_b << "\n"
+        << std::fixed << std::setprecision(2)
+        << "game_overlay_box_thickness = " << game_overlay_box_thickness << "\n"
+        << "game_overlay_future_point_radius = " << game_overlay_future_point_radius << "\n"
+        << "game_overlay_future_alpha_falloff = " << game_overlay_future_alpha_falloff << "\n\n";
+
+    file << "game_overlay_icon_enabled = " << (game_overlay_icon_enabled ? "true" : "false") << "\n"
+        << "game_overlay_icon_path = " << game_overlay_icon_path << "\n"
+        << "game_overlay_icon_width = " << game_overlay_icon_width << "\n"
+        << "game_overlay_icon_height = " << game_overlay_icon_height << "\n"
+        << std::fixed << std::setprecision(2)
+        << "game_overlay_icon_offset_x = " << game_overlay_icon_offset_x << "\n"
+        << std::fixed << std::setprecision(2)
+        << "game_overlay_icon_offset_y = " << game_overlay_icon_offset_y << "\n"
+        << "game_overlay_icon_anchor = " << game_overlay_icon_anchor << "\n\n";
+
+    file << "show_recoil_indicator = " << (show_recoil_indicator ? "true" : "false") << "\n\n";
+
+    auto joinInts = [](const std::vector<int>& vec) -> std::string {
+        std::ostringstream oss;
+        for (size_t i = 0; i < vec.size(); ++i)
+        {
+            if (i > 0) oss << ", ";
+            oss << vec[i];
+        }
+        return oss.str();
+        };
+
     // Custom Classes
     file << "# Custom Classes\n"
-        << "class_player = " << class_player << "\n"
-        << "class_bot = " << class_bot << "\n"
-        << "class_weapon = " << class_weapon << "\n"
-        << "class_outline = " << class_outline << "\n"
-        << "class_dead_body = " << class_dead_body << "\n"
-        << "class_hideout_target_human = " << class_hideout_target_human << "\n"
-        << "class_hideout_target_balls = " << class_hideout_target_balls << "\n"
-        << "class_head = " << class_head << "\n"
-        << "class_smoke = " << class_smoke << "\n"
-        << "class_fire = " << class_fire << "\n"
-        << "class_third_person = " << class_third_person << "\n\n";
+        << "class_player = " << joinInts(class_player) << "\n"
+        << "class_bot = " << joinInts(class_bot) << "\n"
+        << "class_weapon = " << joinInts(class_weapon) << "\n"
+        << "class_outline = " << joinInts(class_outline) << "\n"
+        << "class_dead_body = " << joinInts(class_dead_body) << "\n"
+        << "class_hideout_target_human = " << joinInts(class_hideout_target_human) << "\n"
+        << "class_hideout_target_balls = " << joinInts(class_hideout_target_balls) << "\n"
+        << "class_head = " << joinInts(class_head) << "\n"
+        << "class_smoke = " << joinInts(class_smoke) << "\n"
+        << "class_fire = " << joinInts(class_fire) << "\n"
+        << "class_third_person = " << joinInts(class_third_person) << "\n\n";
 
     // Debug
     file << "# Debug\n"
@@ -574,6 +742,128 @@ bool Config::saveConfig(const std::string& filename)
     }
 
     file.close();
+    return true;
+}
+
+// возвращает относительные пути к файлам *.ini в папке binds
+std::vector<std::string> Config::listBindFiles(const std::string& folder) const
+{
+    std::vector<std::string> files;
+    try {
+        if (!std::filesystem::exists(folder)) {
+            std::filesystem::create_directory(folder);
+            return files;
+        }
+        for (auto& p : std::filesystem::directory_iterator(folder)) {
+            if (!p.is_regular_file()) continue;
+            auto ext = p.path().extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+            if (ext == ".ini" || ext == ".cfg" || ext == ".txt") {
+                files.push_back(p.path().string());
+            }
+        }
+    }
+    catch (...) {}
+    std::sort(files.begin(), files.end());
+    return files;
+}
+
+bool Config::applyPartialConfigFile(const std::string& filename)
+{
+    if (!std::filesystem::exists(filename)) return false;
+
+    CSimpleIniA ini;
+    ini.SetUnicode();
+    SI_Error rc = ini.LoadFile(filename.c_str());
+    if (rc < 0) return false;
+
+    auto tryGetString = [&](const char* k, std::string& out) -> bool {
+        const char* v = ini.GetValue("", k, nullptr);
+        if (v) { out = v; return true; }
+        return false;
+        };
+    auto tryGetBool = [&](const char* k, bool& out) -> bool {
+        const char* v = ini.GetValue("", k, nullptr);
+        if (v) { out = (std::string(v) == "true" || std::string(v) == "1"); return true; }
+        return false;
+        };
+    auto tryGetLong = [&](const char* k, long& out) -> bool {
+        const char* v = ini.GetValue("", k, nullptr);
+        if (v) { out = ini.GetLongValue("", k, out); return true; }
+        return false;
+        };
+    auto tryGetDouble = [&](const char* k, double& out) -> bool {
+        const char* v = ini.GetValue("", k, nullptr);
+        if (v) { out = ini.GetDoubleValue("", k, out); return true; }
+        return false;
+        };
+    auto get_string = [&](const char* key, const std::string& defval)
+        {
+            const char* val = ini.GetValue("", key, defval.c_str());
+            return val ? std::string(val) : defval;
+        };
+
+    // --- Примеры параметров (добавляй/удаляй по необходимости) ---
+    double tmpd;
+    long tmpl;
+    bool tmpb;
+    std::string tmps;
+
+    //Easy No Recoil
+    if (tryGetDouble("easynorecoil_offsetY", tmpd)) easynorecoil_offsetY = (float)tmpd;
+    if (tryGetDouble("easynorecoil_increaseSpeed", tmpd)) easynorecoil_increaseSpeed = (float)tmpd;
+    if (tryGetDouble("easynorecoil_returnSpeed", tmpd)) easynorecoil_returnSpeed = (float)tmpd;
+    if (tryGetDouble("easynorecoilstrength", tmpd)) easynorecoilstrength = (float)tmpd;
+    if (tryGetBool("easynorecoil", tmpb)) easynorecoil = tmpb;
+
+    //Target correction
+    if (tryGetLong("fovX", tmpl)) fovX = (int)tmpl;
+    if (tryGetLong("fovY", tmpl)) fovY = (int)tmpl;
+    if (tryGetDouble("minSpeedMultiplier", tmpd)) minSpeedMultiplier = (float)tmpd;
+    if (tryGetDouble("maxSpeedMultiplier", tmpd)) maxSpeedMultiplier = (float)tmpd;
+    if (tryGetDouble("predictionInterval", tmpd)) predictionInterval = (float)tmpd;
+    if (tryGetLong("prediction_futurePositions", tmpl)) prediction_futurePositions = (int)tmpl;
+    if (tryGetBool("draw_futurePositions", tmpb)) draw_futurePositions = tmpb;
+
+    //Wnd mouse
+    if (tryGetBool("wind_mouse_enabled", tmpb)) wind_mouse_enabled = tmpb;
+    if (tryGetDouble("wind_G", tmpd)) wind_G = (float)tmpd;
+    if (tryGetDouble("wind_W", tmpd)) wind_W = (float)tmpd;
+    if (tryGetDouble("wind_M", tmpd)) wind_M = (float)tmpd;
+    if (tryGetDouble("wind_D", tmpd)) wind_D = (float)tmpd;
+
+    //Target
+    if (tryGetBool("disable_headshot", tmpb)) disable_headshot = tmpb;
+    if (tryGetDouble("body_y_offset", tmpd)) body_y_offset = (float)tmpd;
+    if (tryGetDouble("head_y_offset ", tmpd)) head_y_offset = (float)tmpd;
+    if (tryGetBool("auto_aim ", tmpb)) auto_aim = tmpb;
+
+    //AI
+    if (tryGetString("ai_model", tmps)) ai_model = tmps;
+    if (tryGetString("postprocess", tmps)) postprocess = tmps;
+    if (tryGetDouble("confidence_threshold", tmpd)) confidence_threshold = (float)tmpd;
+    if (tryGetDouble("nms_threshold", tmpd)) nms_threshold = (float)tmpd;
+
+    // Buttons override
+    if (tryGetString("button_targeting", tmps)) button_targeting = splitString(tmps);
+    if (tryGetString("button_shoot", tmps)) button_shoot = splitString(tmps);
+    if (tryGetString("button_zoom", tmps)) button_zoom = splitString(tmps);
+
+    // Custom classes
+    if (tryGetString("class_player", tmps)) {
+        auto parts = splitString(tmps, ',');
+        if (!parts.empty()) {
+            class_player = parseClassList(get_string("class_player", "0"));
+        }
+    }
+    if (tryGetString("class_head", tmps)) {
+        auto parts = splitString(tmps, ',');
+        if (!parts.empty())
+        {
+            class_head = parseClassList(get_string("class_head", "0"));
+        }
+    }
+
     return true;
 }
 

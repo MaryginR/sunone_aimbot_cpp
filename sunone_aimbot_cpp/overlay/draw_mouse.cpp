@@ -270,6 +270,14 @@ void draw_mouse()
         {
             ImGui::TextColored(ImVec4(255, 255, 0, 255), "WARNING: High recoil strength may be detected.");
         }
+
+        // --- Дополнительные параметры Easy No Recoil ---
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.6f, 0.9f, 1.0f, 1.0f), "Advanced No Recoil Offset Control");
+        ImGui::SliderFloat("Max Y Offset", &config.easynorecoil_offsetY, -100.0f, 100.0f, "%.1f");
+        ImGui::SliderFloat("Increase Speed", &config.easynorecoil_increaseSpeed, 0.1f, 10.0f, "%.2f");
+        ImGui::SliderFloat("Return Speed", &config.easynorecoil_returnSpeed, 0.1f, 10.0f, "%.2f");
+        ImGui::TextDisabled("OffsetY defines target shift, speeds control how fast it changes/returns.");
     }
 
     ImGui::SeparatorText("Auto Shoot");
@@ -320,8 +328,33 @@ void draw_mouse()
         }
     }
 
+    ImGui::SeparatorText("Neuro AC bypass");
+
+    if (ImGui::Checkbox("Start only after mouse move", &config.starts_after_mouse_move)) {
+        config.saveConfig();
+    }
+
+    if (config.starts_after_mouse_move)
+    {
+        if (ImGui::SliderInt("Move timeout (ms)", &config.move_timeout, 10, 200)) {
+            config.saveConfig();
+        }
+
+        if (ImGui::SliderInt("Min move length", &config.min_mouse_move_length, 1, 100)) {
+            config.saveConfig();
+        }
+
+        if (ImGui::SliderInt("Aim limit timeout (ms)", &config.aim_timeout, 0, 50)) {
+            config.saveConfig();
+        }
+
+        if (ImGui::SliderInt("Max aim distance", &config.max_aim_distance, 1, 100)) {
+            config.saveConfig();
+        }
+    }
+
     ImGui::SeparatorText("Input method");
-    std::vector<std::string> input_methods = { "WIN32", "GHUB", "ARDUINO", "KMBOX_B", "KMBOX_NET"};
+    std::vector<std::string> input_methods = { "WIN32", "GHUB", "ARDUINO", "MIDI", "KMBOX_B", "KMBOX_NET"};
 
     std::vector<const char*> method_items;
     method_items.reserve(input_methods.size());
@@ -439,6 +472,75 @@ void draw_mouse()
             input_method_changed.store(true);
         }
     }
+    // --- далее, после остальных else if веток, добавляем новую ветку для MIDI ---
+    else if (config.input_method == "MIDI")
+    {
+        // показать статус подключения (необязательно — проверка midiConnection уже делалась в main)
+        if (arduinoMidi)
+        {
+            // если у вас в классе MidiConnection есть isOpen():
+            if (arduinoMidi->isOpen())
+                ImGui::TextColored(ImVec4(0, 255, 0, 255), "MIDI connected");
+            else
+                ImGui::TextColored(ImVec4(255, 0, 0, 255), "MIDI not connected");
+        }
+
+        // Список доступных MIDI-выходов (имён) через RtMidi
+        std::vector<std::string> midi_ports;
+        try
+        {
+            RtMidiOut midiOut;
+            unsigned int nPorts = midiOut.getPortCount();
+            for (unsigned int i = 0; i < nPorts; ++i)
+            {
+                try {
+                    std::string name = midiOut.getPortName(i);
+                    midi_ports.push_back(name);
+                }
+                catch (...) {
+                    // пропустить порт, если не удалось прочитать имя
+                }
+            }
+        }
+        catch (...)
+        {
+            // RtMidi может бросить исключение если система не поддерживает MIDI
+        }
+
+        // Добавляем пустую строку как опцию "None"
+        if (midi_ports.empty())
+        {
+            midi_ports.push_back("No MIDI ports");
+        }
+
+        std::vector<const char*> midi_items;
+        midi_items.reserve(midi_ports.size());
+        for (const auto& s : midi_ports) midi_items.push_back(s.c_str());
+
+        // Найдем индекс текущего выбранного устройства (config.midi_device_name)
+        int midi_index = 0;
+        for (size_t i = 0; i < midi_ports.size(); ++i)
+        {
+            if (!config.midi_device_name.empty() && midi_ports[i] == config.midi_device_name)
+            {
+                midi_index = static_cast<int>(i);
+                break;
+            }
+        }
+
+        if (ImGui::Combo("MIDI Device", &midi_index, midi_items.data(), static_cast<int>(midi_items.size())))
+        {
+            // пользователь выбрал другое имя устройства
+            if (midi_index >= 0 && midi_index < (int)midi_ports.size())
+            {
+                config.midi_device_name = midi_ports[midi_index];
+                config.saveConfig();
+                input_method_changed.store(true);
+            }
+        }
+
+        ImGui::TextWrapped("MIDI: select an output device (names retrieved from your system). Device name is used to open the port.");
+    }
     else if (config.input_method == "GHUB")
     {
         if (ghub_version == "13.1.4")
@@ -448,13 +550,6 @@ void draw_mouse()
         }
         else
         {
-            if (ghub_version == "")
-            {
-                ghub_version = "unknown";
-            }
-
-            std::string ghub_version_label = "Installed Ghub version: " + ghub_version;
-            ImGui::Text(ghub_version_label.c_str());
             ImGui::Text("The wrong version of Ghub is installed or the path to Ghub is not set by default.\nDefault system path: C:\\Program Files\\LGHUB");
             if (ImGui::Button("GHub Docs"))
             {
@@ -542,7 +637,7 @@ void draw_mouse()
         strncpy(port, config.kmbox_net_port.c_str(), sizeof(port));
         strncpy(uuid, config.kmbox_net_uuid.c_str(), sizeof(uuid));
 
-        ImGui::InputText("kmboxNet IP", ip, sizeof(ip));
+        ImGui::InputText("IP", ip, sizeof(ip));
         ImGui::InputText("Port", port, sizeof(port));
         ImGui::InputText("UUID", uuid, sizeof(uuid));
 

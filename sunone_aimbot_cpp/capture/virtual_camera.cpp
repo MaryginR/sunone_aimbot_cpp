@@ -84,7 +84,12 @@ VirtualCameraCapture::VirtualCameraCapture(int w, int h)
         }
     }
     
-    cap_ = std::make_unique<cv::VideoCapture>(camIdx, cv::CAP_MSMF);
+    cap_ = std::make_unique<cv::VideoCapture>();
+    cap_->open(camIdx, cv::CAP_DSHOW);
+
+    if (!cap_->isOpened()) {
+        cap_->open(camIdx, cv::CAP_MSMF);
+    }
     cap_->set(cv::CAP_PROP_FOURCC, 0);
 
     if (!cap_->isOpened())
@@ -113,13 +118,12 @@ VirtualCameraCapture::VirtualCameraCapture(int w, int h)
     roiW_ = even(w);
     roiH_ = even(h);
 
-    //scratchGpu_.create(roiH_, roiW_, CV_8UC2);
-    //bgrGpu_.create(roiH_, roiW_, CV_8UC3);
-
     if (config.verbose)
+    {
         std::cout << "[VirtualCamera] Actual capture: "
             << roiW_ << 'x' << roiH_ << " @ "
-            << cap_->get(cv::CAP_PROP_FPS) << " FPS\n";
+            << cap_->get(cv::CAP_PROP_FPS) << " FPS" << std::endl;
+    }
 }
 
 VirtualCameraCapture::~VirtualCameraCapture()
@@ -134,26 +138,80 @@ VirtualCameraCapture::~VirtualCameraCapture()
     }
 }
 
+bool safeRead(cv::VideoCapture& cap, cv::Mat& frame)
+{
+    try
+    {
+        // DirectShow иногда падает в read(), но grab()/retrieve() — безопаснее
+        if (!cap.grab())
+            return false;
+
+        if (!cap.retrieve(frame))
+            return false;
+
+        if (frame.empty())
+            return false;
+
+        return true;
+    }
+    catch (...)
+    {
+        // Если драйвер рухнул — возвращаем false
+        return false;
+    }
+}
+
+
 cv::Mat VirtualCameraCapture::GetNextFrameCpu()
 {
     if (!cap_ || !cap_->isOpened())
         return cv::Mat();
 
     cv::Mat frame;
-    if (!cap_->read(frame) || frame.empty())
+    if (!safeRead(*cap_, frame))
     {
-        return cv::Mat();
+        std::cerr << "[VirtualCamera] Read failed. Trying to reinitialize device..." << std::endl;
+
+        // Переоткрываем устройство, если драйвер упал
+        int camIdx = 0;
+        const auto& cams = GetAvailableVirtualCameras();
+
+        auto it = std::find(cams.begin(), cams.end(), config.virtual_camera_name);
+        if (it != cams.end())
+            camIdx = int(std::distance(cams.begin(), it));
+
+        // Полностью уничтожаем объект
+        cap_.reset();
+        cap_ = std::make_unique<cv::VideoCapture>();
+
+        // Сначала пробуем DSHOW
+        if (!cap_->open(camIdx, cv::CAP_DSHOW))
+            cap_->open(camIdx, cv::CAP_MSMF);
+
+        if (!cap_->isOpened())
+        {
+            std::cerr << "[VirtualCamera] Reinit failed" << std::endl;
+            return cv::Mat();
+        }
+        else
+        {
+            std::cerr << "[VirtualCamera] Reinit succesful" << std::endl;
+        }
+
+        // Пробуем снова
+        if (!safeRead(*cap_, frame))
+            return cv::Mat();
     }
 
     switch (frame.channels())
     {
-    case 1: cv::cvtColor(frame, frame, cv::COLOR_GRAY2BGR); break;
-    case 4: cv::cvtColor(frame, frame, cv::COLOR_BGRA2BGR); break;
-    case 3:                                                 break;
-    default:
-        std::cerr << "[VirtualCamera] Unexpected channel count: "
-            << frame.channels() << std::endl;
-        return cv::Mat();
+        case 1: cv::cvtColor(frame, frame, cv::COLOR_GRAY2BGR); break;
+        case 4: cv::cvtColor(frame, frame, cv::COLOR_BGRA2BGR); break;
+        case 3:                                                 break;
+        default:
+            std::cerr << "[VirtualCamera] Unexpected channel count: "
+                << frame.channels() << std::endl;
+            return cv::Mat();
     }
 
     frameCpu = frame;
@@ -189,9 +247,19 @@ std::vector<std::string> VirtualCameraCapture::GetAvailableVirtualCameras(bool f
     cache.clear();
     for (int i = 0; i < 10; ++i)
     {
-        cv::VideoCapture test(i, cv::CAP_MSMF);
+        cv::VideoCapture test;
+
+        // Сначала пытаемся DSHOW (видит OBS Virtual Camera)
+        test.open(i, cv::CAP_DSHOW);
+        if (!test.isOpened()) {
+            // Если нет — пробуем MSMF (UVC камеры)
+            test.open(i, cv::CAP_MSMF);
+        }
+
         if (test.isOpened())
+        {
             cache.emplace_back("Camera " + std::to_string(i));
+        }
     }
     SaveCamList(cache);
     return cache;

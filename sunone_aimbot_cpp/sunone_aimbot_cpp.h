@@ -20,6 +20,7 @@ extern DirectMLDetector* dml_detector;
 extern DetectionBuffer detectionBuffer;
 extern MouseThread* globalMouseThread;
 extern SerialConnection* arduinoSerial;
+extern MidiConnection* arduinoMidi;
 extern Kmbox_b_Connection* kmboxSerial;
 extern KmboxNetConnection* kmboxNetSerial;
 extern std::atomic<bool> input_method_changed;

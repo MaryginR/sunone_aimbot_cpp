@@ -15,6 +15,7 @@
 #include "SerialConnection.h"
 #include "sunone_aimbot_cpp.h"
 #include "ghub.h"
+#include <keycodes.h>
 
 MouseThread::MouseThread(
     int resolution,
@@ -26,6 +27,7 @@ MouseThread::MouseThread(
     bool auto_shoot,
     float bScope_multiplier,
     SerialConnection* serialConnection,
+    MidiConnection* midiConnection,
     GhubMouse* gHubMouse,
     Kmbox_b_Connection* kmboxConnection,
     KmboxNetConnection* Kmbox_Net_Connection)
@@ -42,6 +44,7 @@ MouseThread::MouseThread(
     auto_shoot(auto_shoot),
     bScope_multiplier(bScope_multiplier),
     serial(serialConnection),
+    midi(midiConnection),
     kmbox(kmboxConnection),
     kmbox_net(Kmbox_Net_Connection),
     gHub(gHubMouse),
@@ -61,6 +64,84 @@ MouseThread::MouseThread(
     wind_D = config.wind_D;
 
     moveWorker = std::thread(&MouseThread::moveWorkerLoop, this);
+}
+
+void MouseThread::initRawInput(HWND hwnd)
+{
+    rawInputHwnd = hwnd;
+    RAWINPUTDEVICE rid;
+    rid.usUsagePage = 0x01; // generic desktop controls
+    rid.usUsage = 0x02;     // mouse
+    rid.dwFlags = RIDEV_INPUTSINK; // получать даже если не в фокусе
+    rid.hwndTarget = hwnd;
+    RegisterRawInputDevices(&rid, 1, sizeof(rid));
+}
+
+void MouseThread::processRawInput(LPARAM lParam)
+{
+    RAWINPUT raw;
+    UINT size = sizeof(raw);
+    if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER)) != size)
+        return;
+
+    if (raw.header.dwType == RIM_TYPEMOUSE)
+    {
+        LONG dx = raw.data.mouse.lLastX;
+        LONG dy = raw.data.mouse.lLastY;
+        if (dx != 0 || dy != 0)
+        {
+            double delta = std::hypot(double(dx), double(dy));
+
+            if (remaining_aim_distance.load(std::memory_order_relaxed) <= 0.99)
+            {
+                if (!limit_timer_active.load(std::memory_order_relaxed))
+                {
+                    limit_timer_active.store(true, std::memory_order_relaxed);
+                    last_limit_reset_time = std::chrono::steady_clock::now();
+                }
+                
+                double old = current_move_distance.load(std::memory_order_relaxed);
+                while (!current_move_distance.compare_exchange_weak(old, old + delta,
+                    std::memory_order_release, std::memory_order_relaxed)) {}
+            }
+
+            last_user_move_time = std::chrono::steady_clock::now();
+
+            if (current_move_distance.load() >= config.min_mouse_move_length && limit_timer_active.load(std::memory_order_relaxed))
+            {
+                user_move_valid.store(true);
+
+                auto now = std::chrono::steady_clock::now();
+                double elapsed_ms = std::chrono::duration<double, std::milli>(now - last_limit_reset_time).count();
+
+                if (elapsed_ms >= config.aim_timeout)
+                {
+                    remaining_aim_distance.store(config.max_aim_distance, std::memory_order_relaxed);
+                    current_move_distance.store(0.0, std::memory_order_relaxed);
+                    limit_timer_active.store(false, std::memory_order_relaxed);
+                }
+            }
+        }
+    }
+}
+
+bool MouseThread::canStartAiming()
+{
+    if (!config.starts_after_mouse_move)
+        return true;
+
+    auto now = std::chrono::steady_clock::now();
+    double elapsed_ms = std::chrono::duration<double, std::milli>(now - last_user_move_time).count();
+
+    if (elapsed_ms > config.move_timeout)
+    {
+        user_move_valid.store(false);
+        current_move_distance.store(0.0);
+        remaining_aim_distance.store(0.0);
+        return false;
+    }
+
+    return user_move_valid.load();
 }
 
 void MouseThread::updateConfig(
@@ -99,6 +180,11 @@ MouseThread::~MouseThread()
 
 void MouseThread::queueMove(int dx, int dy)
 {
+    if (dx == 0 && dy == 0)
+    {
+        return;
+    }
+
     std::lock_guard lg(queueMtx);
     if (moveQueue.size() >= queueLimit) moveQueue.pop();
     moveQueue.push({ dx,dy });
@@ -227,6 +313,11 @@ std::pair<double, double> MouseThread::predict_target_position(double target_x, 
 
 void MouseThread::sendMovementToDriver(int dx, int dy)
 {
+    if (dx == 0 && dy == 0)
+    {
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(input_method_mutex);
 
     if (kmbox)
@@ -240,6 +331,10 @@ void MouseThread::sendMovementToDriver(int dx, int dy)
     else if (serial)
     {
         serial->move(dx, dy);
+    }
+    else if (midi)
+    {
+        midi->move(dx, dy);
     }
     else if (gHub)
     {
@@ -315,6 +410,9 @@ bool MouseThread::check_target_in_scope(double target_x, double target_y, double
 
 void MouseThread::moveMouse(const AimbotTarget& target)
 {
+    if (!canStartAiming())
+        return;
+
     std::lock_guard lg(input_method_mutex);
 
     auto predicted = predict_target_position(
@@ -327,6 +425,9 @@ void MouseThread::moveMouse(const AimbotTarget& target)
 
 void MouseThread::moveMousePivot(double pivotX, double pivotY)
 {
+    if (!canStartAiming())
+        return;
+
     std::lock_guard lg(input_method_mutex);
 
     auto current_time = std::chrono::steady_clock::now();
@@ -338,6 +439,34 @@ void MouseThread::moveMousePivot(double pivotX, double pivotY)
         prev_velocity_x = prev_velocity_y = 0.0;
 
         auto m0 = calc_movement(pivotX, pivotY);
+
+        if (config.starts_after_mouse_move)
+        {
+            // Ограничиваем движение по available_aim_move
+            double move_dist = std::hypot(m0.first, m0.second);
+            double allowed_dist = remaining_aim_distance.load(std::memory_order_relaxed);
+
+            if (move_dist > allowed_dist)
+            {
+                double scale = allowed_dist / move_dist;
+                m0.first *= scale;
+                m0.second *= scale;
+                remaining_aim_distance.store(0.0, std::memory_order_relaxed); // сбросили
+            }
+            else
+            {
+                double old_val = remaining_aim_distance.load(std::memory_order_relaxed);
+                double new_val;
+                do {
+                    new_val = std::max(0.0, old_val - move_dist); // гарантируем, что не уйдём в минус
+                } while (!remaining_aim_distance.compare_exchange_weak(
+                    old_val, new_val,
+                    std::memory_order_release,
+                    std::memory_order_relaxed
+                ));
+            }
+        }
+
         queueMove(static_cast<int>(m0.first), static_cast<int>(m0.second));
         return;
     }
@@ -354,12 +483,55 @@ void MouseThread::moveMousePivot(double pivotX, double pivotY)
     double predX = pivotX + vx * prediction_interval + vx * 0.002;
     double predY = pivotY + vy * prediction_interval + vy * 0.002;
 
+    if (config.easynorecoil)
+    {
+        predY += recoilYOffset.load(std::memory_order_relaxed);
+    }
+
     auto mv = calc_movement(predX, predY);
+
+    if (config.starts_after_mouse_move)
+    {
+        double move_dist = std::hypot(mv.first, mv.second);
+        double allowed_dist = remaining_aim_distance.load(std::memory_order_relaxed);
+
+        if (move_dist > allowed_dist)
+        {
+            double scale = allowed_dist / move_dist;
+            mv.first *= scale;
+            mv.second *= scale;
+            remaining_aim_distance.store(0.0, std::memory_order_relaxed); // сбросили лимит
+        }
+        else
+        {
+            double old_val = remaining_aim_distance.load(std::memory_order_relaxed);
+            double new_val;
+            do {
+                new_val = std::max(0.0, old_val - move_dist); // гарантируем, что не уйдём в минус
+            } while (!remaining_aim_distance.compare_exchange_weak(
+                old_val, new_val,
+                std::memory_order_release,
+                std::memory_order_relaxed
+            ));
+        }
+    }
+
     int mx = static_cast<int>(mv.first);
     int my = static_cast<int>(mv.second);
 
-    if (wind_mouse_enabled)  windMouseMoveRelative(mx, my);
-    else                     queueMove(mx, my);
+    if (mx == 0 && my == 0)
+    {
+        return;
+    }
+
+    if (wind_mouse_enabled)
+    {
+        windMouseMoveRelative(mx, my);
+    }
+    else
+    {
+        queueMove(mx, my);
+    }
 }
 
 void MouseThread::pressMouse(const AimbotTarget& target)
@@ -380,6 +552,10 @@ void MouseThread::pressMouse(const AimbotTarget& target)
         else if (serial)
         {
             serial->press();
+        }
+        else if (midi)
+        {
+            midi->press();
         }
         else if (gHub)
         {
@@ -407,6 +583,10 @@ void MouseThread::pressMouse(const AimbotTarget& target)
         else if (serial)
         {
             serial->release();
+        }
+        else if (midi)
+        {
+            midi->release();
         }
         else if (gHub)
         {
@@ -441,6 +621,10 @@ void MouseThread::releaseMouse()
         {
             serial->release();
         }
+        else if (midi)
+        {
+            midi->release();
+        }
         else if (gHub)
         {
             gHub->mouse_up();
@@ -458,6 +642,9 @@ void MouseThread::releaseMouse()
 
 void MouseThread::resetPrediction()
 {
+    // user_move_valid.store(false);
+    // current_move_distance.store(0.0);
+    // remaining_aim_distance.store(0.0);
     prev_time = std::chrono::steady_clock::time_point();
     prev_x = 0;
     prev_y = 0;
@@ -531,6 +718,12 @@ void MouseThread::setSerialConnection(SerialConnection* newSerial)
 {
     std::lock_guard<std::mutex> lock(input_method_mutex);
     serial = newSerial;
+}
+
+void MouseThread::setMidiConnection(MidiConnection* newMidi)
+{
+    std::lock_guard<std::mutex> lock(input_method_mutex);
+    midi = newMidi;
 }
 
 void MouseThread::setKmboxConnection(Kmbox_b_Connection* newKmbox)
