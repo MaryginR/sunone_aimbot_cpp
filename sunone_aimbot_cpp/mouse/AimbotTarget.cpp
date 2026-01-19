@@ -70,10 +70,7 @@ AimbotTarget* sortTargets(
                 continue;
 
             if (isClassMatch(classes[i], config.class_player) ||
-                isClassMatch(classes[i], config.class_bot) ||
-                (isClassMatch(classes[i], config.class_hideout_target_human) && config.shooting_range_targets) ||
-                (isClassMatch(classes[i], config.class_hideout_target_balls) && config.shooting_range_targets) ||
-                (isClassMatch(classes[i], config.class_third_person) && !config.ignore_third_person))
+                isClassMatch(classes[i], config.class_bot))
             {
                 int offsetY = static_cast<int>(boxes[i].height * config.body_y_offset);
                 cv::Point targetPoint(boxes[i].x + boxes[i].width / 2, boxes[i].y + offsetY);

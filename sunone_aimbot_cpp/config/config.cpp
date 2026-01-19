@@ -906,7 +906,6 @@ bool Config::applyPartialConfigFile(const std::string& filename)
 
     //AI
     if (tryGetString("ai_model", tmps)) ai_model = tmps;
-    if (tryGetString("postprocess", tmps)) postprocess = tmps;
     if (tryGetDouble("confidence_threshold", tmpd)) confidence_threshold = (float)tmpd;
     if (tryGetDouble("nms_threshold", tmpd)) nms_threshold = (float)tmpd;
 

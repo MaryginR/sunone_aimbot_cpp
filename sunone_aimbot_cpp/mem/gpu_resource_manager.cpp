@@ -1,3 +1,4 @@
+#ifdef USE_CUDA
 #include "gpu_resource_manager.h"
 
 bool GPUResourceManager::reserveGPUMemory(size_t reservedMemoryMB)
@@ -22,3 +23,4 @@ bool GPUResourceManager::setGPUExclusiveMode()
     cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
     return true;
 }
+#endif

@@ -1,3 +1,4 @@
+#ifdef USE_CUDA
 #pragma once
 #include <cuda_runtime.h>
 
@@ -11,3 +12,4 @@ private:
     void* reservedBuffer = nullptr;
     size_t reservedSize = 0;
 };
+#endif
