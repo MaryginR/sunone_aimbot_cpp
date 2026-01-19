@@ -28,8 +28,7 @@ static ID3D11Texture2D* g_debugTex = nullptr;
 static ID3D11ShaderResourceView* g_debugSRV = nullptr;
 static int texW = 0, texH = 0;
 
-
-static float debug_scale = 1.0f;
+static float debug_scale = 0.5f;
 
 static void uploadDebugFrame(const cv::Mat& bgr)
 {
@@ -113,7 +112,7 @@ void draw_debug_frame()
 
             if (i < detectionBuffer.classes.size())
             {
-                std::string label = "Class " + std::to_string(detectionBuffer.classes[i]);
+                std::string label = std::to_string(detectionBuffer.classes[i]);
                 draw_list->AddText(ImVec2(p1.x, p1.y - 16), IM_COL32(255, 255, 0, 255), label.c_str());
             }
         }
@@ -223,18 +222,10 @@ void draw_debug()
 
     ImGui::InputInt("Screenshot delay", &config.screenshot_delay, 50, 500);
     ImGui::Checkbox("Verbose console output", &config.verbose);
-
-    ImGui::Separator();
-
-    ImGui::Text("Test functions");
-    if (ImGui::Button("Free terminal"))
+    
+    if (ImGui::Button("Print OpenCV build information##button_cv2_build_info"))
     {
-        HideConsole();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Restore terminal"))
-    {
-        ShowConsole();
+        std::cout << cv::getBuildInformation() << std::endl;
     }
 
     if (prev_screenshot_delay != config.screenshot_delay ||

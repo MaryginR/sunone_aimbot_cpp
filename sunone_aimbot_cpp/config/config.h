@@ -10,7 +10,10 @@ class Config
 {
 public:
     // Capture
-    std::string capture_method; // "duplication_api", "winrt", "virtual_camera"
+    std::string capture_method; // "duplication_api", "winrt", "virtual_camera", "gstreamer"
+    std::string capture_target;
+    std::string capture_window_title;
+    std::string gstreamer_pipeline;
     int detection_resolution;
     int capture_fps;
     int monitor_idx;
@@ -25,8 +28,6 @@ public:
     bool disable_headshot;
     float body_y_offset;
     float head_y_offset;
-    bool ignore_third_person;
-    bool shooting_range_targets;
     bool auto_aim;
 
     // Mouse
@@ -49,7 +50,7 @@ public:
     float easynorecoil_offsetY;        // Максимальное смещение по оси Y
     float easynorecoil_increaseSpeed;  // Скорость увеличения смещения
     float easynorecoil_returnSpeed;    // Скорость возврата
-    std::string input_method; // "WIN32", "GHUB", "ARDUINO", "KMBOX_B", "KMBOX_NET"
+    std::string input_method; // "WIN32", "GHUB", "ARDUINO", "MIDI", "KMBOX_B", "KMBOX_NET", "MAKCU"
 
     // Wind mouse
     bool wind_mouse_enabled;
@@ -81,6 +82,10 @@ public:
     std::string kmbox_net_port;
     std::string kmbox_net_uuid;
 
+    // makcu
+    int makcu_baudrate;
+    std::string makcu_port;
+
     // Mouse shooting
     bool auto_shoot;
     float bScope_multiplier;
@@ -92,8 +97,6 @@ public:
     float confidence_threshold;
     float nms_threshold;
     int max_detections;
-    std::string postprocess;
-    int batch_size;
 #ifdef USE_CUDA
     bool export_enable_fp8;
     bool export_enable_fp16;
@@ -104,7 +107,14 @@ public:
 #ifdef USE_CUDA
     bool use_cuda_graph;
     bool use_pinned_memory;
+    int gpuMemoryReserveMB;
+    bool enableGpuExclusiveMode;
 #endif
+
+    // System
+    int cpuCoreReserveCount;
+    int systemMemoryReserveMB;
+
     // Buttons
     std::vector<std::string> button_targeting;
     std::vector<std::string> button_shoot;
@@ -120,19 +130,29 @@ public:
 
     // Overlay
     int overlay_opacity;
-    bool overlay_snow_theme;
     float overlay_ui_scale;
+
+    // Depth
+    std::string depth_model_path;
+    int depth_fps;
 
     // Game Overlay
     bool game_overlay_enabled;
     int game_overlay_max_fps;
     bool game_overlay_draw_boxes;
     bool game_overlay_draw_future;
+    bool game_overlay_draw_frame;
+    bool game_overlay_show_target_correction;
     int game_overlay_box_a;
     int game_overlay_box_r;
     int game_overlay_box_g;
     int game_overlay_box_b;
+    int game_overlay_frame_a;
+    int game_overlay_frame_r;
+    int game_overlay_frame_g;
+    int game_overlay_frame_b;
     float game_overlay_box_thickness;
+    float game_overlay_frame_thickness;
     float game_overlay_future_point_radius;
     float game_overlay_future_alpha_falloff;
 
@@ -153,6 +173,10 @@ public:
         clamp255(game_overlay_box_r);
         clamp255(game_overlay_box_g);
         clamp255(game_overlay_box_b);
+        clamp255(game_overlay_frame_a);
+        clamp255(game_overlay_frame_r);
+        clamp255(game_overlay_frame_g);
+        clamp255(game_overlay_frame_b);
     }
 
     // Custom Classes

@@ -33,69 +33,6 @@ float prev_wind_D = config.wind_D;
 bool prev_auto_shoot = config.auto_shoot;
 float prev_bScope_multiplier = config.bScope_multiplier;
 
-static void draw_target_correction_demo()
-{
-    if (ImGui::CollapsingHeader("Visual demo"))
-    {
-        ImVec2 canvas_sz(220, 220);
-        ImGui::InvisibleButton("##tc_canvas", canvas_sz);
-
-        ImVec2 p0 = ImGui::GetItemRectMin();
-        ImVec2 p1 = ImGui::GetItemRectMax();
-        ImVec2 center{ (p0.x + p1.x) * 0.5f, (p0.y + p1.y) * 0.5f };
-
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(p0, p1, IM_COL32(25, 25, 25, 255));
-
-        const float scale = 4.0f;
-        float near_px = config.nearRadius * scale;
-        float snap_px = config.snapRadius * scale;
-        near_px = ImClamp(near_px, 10.0f, canvas_sz.x * 0.45f);
-        snap_px = ImClamp(snap_px, 6.0f, near_px - 4.0f);
-
-        dl->AddCircle(center, near_px, IM_COL32(80, 120, 255, 180), 64, 2.0f);
-        dl->AddCircle(center, snap_px, IM_COL32(255, 100, 100, 180), 64, 2.0f);
-
-        static float  dist_px = near_px;
-        static float  vel_px = 0.0f;
-        static double last_t = ImGui::GetTime();
-        double now = ImGui::GetTime();
-        double dt = now - last_t;
-        last_t = now;
-
-        double dist_units = dist_px / scale;
-        double speed_mult;
-        if (dist_units < config.snapRadius)
-            speed_mult = config.minSpeedMultiplier * config.snapBoostFactor;
-        else if (dist_units < config.nearRadius)
-        {
-            double t = dist_units / config.nearRadius;
-            double crv = 1.0 - pow(1.0 - t, config.speedCurveExponent);
-            speed_mult = config.minSpeedMultiplier +
-                (config.maxSpeedMultiplier - config.minSpeedMultiplier) * crv;
-        }
-        else
-        {
-            double norm = ImClamp(dist_units / config.nearRadius, 0.0, 1.0);
-            speed_mult = config.minSpeedMultiplier +
-                (config.maxSpeedMultiplier - config.minSpeedMultiplier) * norm;
-        }
-
-        double base_px_s = 60.0;
-        vel_px = static_cast<float>(base_px_s * speed_mult);
-        dist_px -= vel_px * static_cast<float>(dt);
-        if (dist_px <= 0.0f) dist_px = near_px;
-
-        ImVec2 dot{ center.x - dist_px, center.y };
-        dl->AddCircleFilled(dot, 4.0f, IM_COL32(255, 255, 80, 255));
-
-        ImGui::Dummy(ImVec2(0, 4));
-        ImGui::TextColored(ImVec4(0.31f, 0.48f, 1.0f, 1.0f), "Near radius");
-        ImGui::SameLine(130);
-        ImGui::TextColored(ImVec4(1.0f, 0.39f, 0.39f, 1.0f), "Snap radius");
-    }
-}
-
 void draw_mouse()
 {
     ImGui::SeparatorText("FOV");
@@ -134,7 +71,6 @@ void draw_mouse()
     ImGui::SliderFloat("Near Radius", &config.nearRadius, 1.0f, 40.0f, "%.1f");
     ImGui::SliderFloat("Speed Curve Exponent", &config.speedCurveExponent, 0.1f, 10.0f, "%.1f");
     ImGui::SliderFloat("Snap Boost Factor", &config.snapBoostFactor, 0.01f, 4.00f, "%.2f");
-    draw_target_correction_demo();
 
     ImGui::SeparatorText("Game Profile");
     std::vector<std::string> profile_names;
@@ -354,7 +290,7 @@ void draw_mouse()
     }
 
     ImGui::SeparatorText("Input method");
-    std::vector<std::string> input_methods = { "WIN32", "GHUB", "ARDUINO", "MIDI", "KMBOX_B", "KMBOX_NET"};
+    std::vector<std::string> input_methods = { "WIN32", "GHUB", "ARDUINO", "MIDI", "KMBOX_B", "KMBOX_NET", "MAKCU" };
 
     std::vector<const char*> method_items;
     method_items.reserve(input_methods.size());
@@ -674,6 +610,75 @@ void draw_mouse()
                 kmboxNetSerial->lcdColor(0);
                 kmboxNetSerial->lcdPicture(gImage_128x160);
             }
+        }
+    }
+    else if (config.input_method == "MAKCU")
+    {
+        std::vector<std::string> port_list;
+        for (int i = 1; i <= 30; ++i)
+        {
+            port_list.push_back("COM" + std::to_string(i));
+        }
+
+        std::vector<const char*> port_items;
+        port_items.reserve(port_list.size());
+        for (const auto& port : port_list)
+        {
+            port_items.push_back(port.c_str());
+        }
+
+        int port_index = 0;
+        for (size_t i = 0; i < port_list.size(); ++i)
+        {
+            if (port_list[i] == config.makcu_port)
+            {
+                port_index = static_cast<int>(i);
+                break;
+            }
+        }
+
+        if (ImGui::Combo("Makcu Port", &port_index, port_items.data(), static_cast<int>(port_items.size())))
+        {
+            config.makcu_port = port_list[port_index];
+            config.saveConfig();
+            input_method_changed.store(true);
+        }
+
+        std::vector<int> baud_list = { 9600, 19200, 38400, 57600, 115200 };
+        std::vector<std::string> baud_str_list;
+        for (int b : baud_list) baud_str_list.push_back(std::to_string(b));
+
+        std::vector<const char*> baud_items;
+        baud_items.reserve(baud_list.size());
+        for (const auto& baud : baud_str_list)
+        {
+            baud_items.push_back(baud.c_str());
+        }
+
+        int baud_index = 0;
+        for (size_t i = 0; i < baud_list.size(); ++i)
+        {
+            if (baud_list[i] == config.makcu_baudrate)
+            {
+                baud_index = static_cast<int>(i);
+                break;
+            }
+        }
+
+        if (ImGui::Combo("Makcu Baudrate", &baud_index, baud_items.data(), static_cast<int>(baud_items.size())))
+        {
+            config.makcu_baudrate = baud_list[baud_index];
+            config.saveConfig();
+            input_method_changed.store(true);
+        }
+
+        if (makcuSerial && makcuSerial->isOpen())
+        {
+            ImGui::TextColored(ImVec4(0, 255, 0, 255), "Makcu connected");
+        }
+        else
+        {
+            ImGui::TextColored(ImVec4(255, 0, 0, 255), "Makcu not connected");
         }
     }
 

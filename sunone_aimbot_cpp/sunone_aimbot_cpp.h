@@ -11,6 +11,7 @@
 #include "detection_buffer.h"
 #include "Kmbox_b.h"
 #include "KmboxNetConnection.h"
+#include "Makcu.h"
 
 extern Config config;
 #ifdef USE_CUDA
@@ -23,6 +24,7 @@ extern SerialConnection* arduinoSerial;
 extern MidiConnection* arduinoMidi;
 extern Kmbox_b_Connection* kmboxSerial;
 extern KmboxNetConnection* kmboxNetSerial;
+extern MakcuConnection* makcuSerial;
 extern std::atomic<bool> input_method_changed;
 extern std::atomic<bool> aiming;
 extern std::atomic<bool> shooting;

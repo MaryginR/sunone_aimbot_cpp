@@ -30,7 +30,8 @@ MouseThread::MouseThread(
     MidiConnection* midiConnection,
     GhubMouse* gHubMouse,
     Kmbox_b_Connection* kmboxConnection,
-    KmboxNetConnection* Kmbox_Net_Connection)
+    KmboxNetConnection* Kmbox_Net_Connection,
+    MakcuConnection* makcuConnection)
     : screen_width(resolution),
     screen_height(resolution),
     prediction_interval(predictionInterval),
@@ -47,6 +48,7 @@ MouseThread::MouseThread(
     midi(midiConnection),
     kmbox(kmboxConnection),
     kmbox_net(Kmbox_Net_Connection),
+    makcu(makcuConnection),
     gHub(gHubMouse),
 
     prev_velocity_x(0.0),
@@ -328,6 +330,10 @@ void MouseThread::sendMovementToDriver(int dx, int dy)
     {
         kmbox_net->move(dx, dy);
     }
+    else if (makcu)
+    {
+        makcu->move(dx, dy);
+    }
     else if (serial)
     {
         serial->move(dx, dy);
@@ -549,6 +555,10 @@ void MouseThread::pressMouse(const AimbotTarget& target)
         {
             kmbox_net->keyDown(0);
         }
+        else if (makcu)
+        {
+            makcu->press(0);
+        }
         else if (serial)
         {
             serial->press();
@@ -579,6 +589,10 @@ void MouseThread::pressMouse(const AimbotTarget& target)
         else if (kmbox_net)
         {
             kmbox_net->keyUp(0);
+        }
+        else if (makcu)
+        {
+            makcu->release(0);
         }
         else if (serial)
         {
@@ -616,6 +630,10 @@ void MouseThread::releaseMouse()
         else if (kmbox_net)
         {
             kmbox_net->keyUp(0);
+        }
+        else if (makcu)
+        {
+            makcu->release(0);
         }
         else if (serial)
         {
@@ -736,6 +754,12 @@ void MouseThread::setKmboxNetConnection(KmboxNetConnection* newKmbox_net)
 {
     std::lock_guard<std::mutex> lock(input_method_mutex);
     kmbox_net = newKmbox_net;
+}
+
+void MouseThread::setMakcuConnection(MakcuConnection* newMakcu)
+{
+    std::lock_guard<std::mutex> lock(input_method_mutex);
+    makcu = newMakcu;
 }
 
 void MouseThread::setGHubMouse(GhubMouse* newGHub)

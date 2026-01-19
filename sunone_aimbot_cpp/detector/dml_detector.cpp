@@ -47,13 +47,15 @@ DirectMLDetector::DirectMLDetector(const std::string& model_path)
     env(ORT_LOGGING_LEVEL_WARNING, "DML_Detector"),
     memory_info(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault))
 {
+    session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    session_options.SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
+    session_options.SetIntraOpNumThreads(1);
+    session_options.SetInterOpNumThreads(1);
+
     Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_DML(session_options, config.dml_device_id));
 
     if (config.verbose)
         std::cout << "[DirectML] Using adapter: " << GetDMLDeviceName(config.dml_device_id) << std::endl;
-
-    session_options.SetExecutionMode(ExecutionMode::ORT_PARALLEL);
-    session_options.SetIntraOpNumThreads(std::thread::hardware_concurrency());
 
     initializeModel(model_path);
 }
@@ -167,16 +169,8 @@ std::vector<std::vector<Detection>> DirectMLDetector::detectBatch(const std::vec
         const float* ptr = outData + b * rows * cols;
         std::vector<Detection> detections;
 
-        if (config.postprocess == "yolo10")
-        {
-            std::vector<int64_t> shp = { batch_size, rows, cols };
-            detections = postProcessYolo10DML(ptr, shp, num_classes, conf_thr, nms_thr, &nmsTimeTmp);
-        }
-        else
-        {
-            std::vector<int64_t> shp = { rows, cols };
-            detections = postProcessYolo11DML(ptr, shp, num_classes, conf_thr, nms_thr, &nmsTimeTmp);
-        }
+        std::vector<int64_t> shp = { rows, cols };
+        detections = postProcessYoloDML(ptr, shp, num_classes, conf_thr, nms_thr, &nmsTimeTmp);
 
         if (useFixed && (target_w != config.detection_resolution))
         {

@@ -20,6 +20,7 @@
 #include "MidiConnection.h"
 #include "Kmbox_b.h"
 #include "KmboxNetConnection.h"
+#include "Makcu.h"
 #include "ghub.h"
 
 class MouseThread
@@ -49,6 +50,7 @@ private:
     MidiConnection* midi;
     Kmbox_b_Connection* kmbox;
     KmboxNetConnection* kmbox_net;
+    MakcuConnection* makcu;
     GhubMouse* gHub;
 
     void sendMovementToDriver(int dx, int dy);
@@ -107,7 +109,8 @@ public:
         MidiConnection* midiConnection = nullptr,
         GhubMouse* gHubMouse = nullptr,
         Kmbox_b_Connection* kmboxConnection = nullptr,
-        KmboxNetConnection* Kmbox_Net_Connection = nullptr
+        KmboxNetConnection* Kmbox_Net_Connection = nullptr,
+        MakcuConnection* makcuConnection = nullptr
     );
     ~MouseThread();
 
@@ -143,6 +146,7 @@ public:
     void setMidiConnection(MidiConnection* newMidi);
     void setKmboxConnection(Kmbox_b_Connection* newKmbox);
     void setKmboxNetConnection(KmboxNetConnection* newKmbox_net);
+    void setMakcuConnection(MakcuConnection* newMakcu);
     void setGHubMouse(GhubMouse* newGHub);
 
     void setTargetDetected(bool detected) { target_detected.store(detected); }

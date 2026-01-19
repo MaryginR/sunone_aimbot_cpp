@@ -42,8 +42,6 @@ public:
     std::chrono::duration<double, std::milli> lastPostprocessTime;
     std::chrono::duration<double, std::milli> lastNmsTime;
 
-    std::vector<std::vector<Detection>> detectBatch(const std::vector<cv::Mat>& frames);
-
 private:
     std::unique_ptr<nvinfer1::IRuntime> runtime;
     std::unique_ptr<nvinfer1::ICudaEngine> engine;
@@ -60,6 +58,8 @@ private:
     void destroyCudaGraph();
 
     std::unordered_map<std::string, void*> pinnedOutputBuffers;
+    void allocatePinnedOutputs();
+    void freePinnedOutputs();
 
     std::mutex inferenceMutex;
     std::condition_variable inferenceCV;
@@ -70,6 +70,13 @@ private:
     void loadEngine(const std::string& engineFile);
 
     void preProcess(const cv::Mat& frame);
+
+    cv::cuda::GpuMat gpuFrameBuffer;
+    cv::cuda::GpuMat gpuResizedBuffer;
+    cv::cuda::GpuMat gpuFloatBuffer;
+    std::vector<cv::cuda::GpuMat> gpuChannelBuffers;
+
+    cv::cuda::Stream cvStream;
 
     void postProcess(
         const float* output,
@@ -92,13 +99,18 @@ private:
 
     std::string inputName;
     void* inputBufferDevice;
-    std::unordered_map<std::string, std::vector<float>> outputDataBuffers;
-    std::unordered_map<std::string, std::vector<__half>> outputDataBuffersHalf;
+
     std::unordered_map<std::string, nvinfer1::DataType> outputTypes;
 
     cv::cuda::GpuMat resizedBuffer;
     cv::cuda::GpuMat floatBuffer;
     std::vector<cv::cuda::GpuMat> channelBuffers;
+
+    // CUDA Events
+    cudaEvent_t inferenceStartEvent = nullptr;
+    cudaEvent_t inferenceCompleteEvent = nullptr;
+    cudaEvent_t copyCompleteEvent = nullptr;
+    bool asyncInferenceInProgress = false;
 };
 
 #endif // TRT_DETECTOR_H

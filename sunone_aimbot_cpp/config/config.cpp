@@ -77,6 +77,8 @@ bool Config::loadConfig(const std::string& filename)
 
         // Capture
         capture_method = "duplication_api";
+        capture_target = "monitor";
+        capture_window_title = "";
         detection_resolution = 320;
         capture_fps = 60;
         monitor_idx = 0;
@@ -91,8 +93,6 @@ bool Config::loadConfig(const std::string& filename)
         disable_headshot = false;
         body_y_offset = 0.15f;
         head_y_offset = 0.05f;
-        ignore_third_person = false;
-        shooting_range_targets = false;
         auto_aim = false;
 
         // Mouse
@@ -147,6 +147,10 @@ bool Config::loadConfig(const std::string& filename)
         kmbox_net_port = "1984";
         kmbox_net_uuid = "DEADC0DE";
 
+        // makcu
+        makcu_baudrate = 115200;
+        makcu_port = "COM0";
+
         // Mouse shooting
         auto_shoot = false;
         bScope_multiplier = 1.0f;
@@ -168,9 +172,6 @@ bool Config::loadConfig(const std::string& filename)
         confidence_threshold = 0.10f;
         nms_threshold = 0.50f;
         max_detections = 100;
-
-        postprocess = "yolo10";
-        batch_size = 1;
 #ifdef USE_CUDA
         export_enable_fp8 = false;
         export_enable_fp16 = true;
@@ -181,7 +182,13 @@ bool Config::loadConfig(const std::string& filename)
 #ifdef USE_CUDA
         use_cuda_graph = false;
         use_pinned_memory = false;
+        gpuMemoryReserveMB = 2048;
+        enableGpuExclusiveMode = true;
 #endif
+
+        // System
+        cpuCoreReserveCount = 4;
+        systemMemoryReserveMB = 2048;
 
         // Buttons
         button_targeting = splitString("RightMouseButton");
@@ -195,19 +202,29 @@ bool Config::loadConfig(const std::string& filename)
 
         // Overlay
         overlay_opacity = 225;
-        overlay_snow_theme = true;
         overlay_ui_scale = 1.0f;
+
+        // Depth
+        depth_model_path = "depth_anything_v2.engine";
+        depth_fps = 100;
 
         // Game overlay
         game_overlay_enabled = false;
         game_overlay_max_fps = 0;
         game_overlay_draw_boxes = true;
         game_overlay_draw_future = true;
+        game_overlay_draw_frame = true;
+        game_overlay_show_target_correction = true;
         game_overlay_box_a = 255;
         game_overlay_box_r = 0;
         game_overlay_box_g = 255;
         game_overlay_box_b = 0;
+        game_overlay_frame_a = 180;
+        game_overlay_frame_r = 255;
+        game_overlay_frame_g = 255;
+        game_overlay_frame_b = 255;
         game_overlay_box_thickness = 2.0f;
+        game_overlay_frame_thickness = 1.5f;
         game_overlay_future_point_radius = 5.0f;
         game_overlay_future_alpha_falloff = 1.0f;
 
@@ -236,9 +253,22 @@ bool Config::loadConfig(const std::string& filename)
 
         // Debug
         show_window = true;
+        show_fps = false;
         screenshot_button = splitString("None");
         screenshot_delay = 500;
         verbose = false;
+
+        // Game profiles
+        game_profiles.clear();
+        GameProfile uni;
+        uni.name = "UNIFIED";
+        uni.sens = 1.0;
+        uni.yaw = 0.022;
+        uni.pitch = uni.yaw;
+        uni.fovScaled = false;
+        uni.baseFOV = 0.0;
+        game_profiles[uni.name] = uni;
+        active_game = uni.name;
 
         saveConfig(filename);
         return true;
@@ -325,6 +355,9 @@ bool Config::loadConfig(const std::string& filename)
 
     // Capture
     capture_method = get_string("capture_method", "duplication_api");
+    capture_target = get_string("capture_target", "monitor");
+    capture_window_title = get_string("capture_window_title", "");
+    gstreamer_pipeline = get_string("gstreamer_pipeline", "");
     detection_resolution = get_long("detection_resolution", 320);
     if (detection_resolution != 160 && detection_resolution != 320 && detection_resolution != 640)
         detection_resolution = 320;
@@ -342,8 +375,6 @@ bool Config::loadConfig(const std::string& filename)
     disable_headshot = get_bool("disable_headshot", false);
     body_y_offset = (float)get_double("body_y_offset", 0.15);
     head_y_offset = (float)get_double("head_y_offset", 0.05);
-    ignore_third_person = get_bool("ignore_third_person", false);
-    shooting_range_targets = get_bool("shooting_range_targets", false);
     auto_aim = get_bool("auto_aim", false);
 
     // Mouse
@@ -398,6 +429,10 @@ bool Config::loadConfig(const std::string& filename)
     kmbox_net_port = get_string("kmbox_net_port", "1984");
     kmbox_net_uuid = get_string("kmbox_net_uuid", "DEADC0DE");
 
+    // makcu
+    makcu_baudrate = get_long("makcu_baudrate", 115200);
+    makcu_port = get_string("makcu_port", "COM0");
+
     // Mouse shooting
     auto_shoot = get_bool("auto_shoot", false);
     bScope_multiplier = (float)get_double("bScope_multiplier", 1.2);
@@ -419,13 +454,6 @@ bool Config::loadConfig(const std::string& filename)
     confidence_threshold = (float)get_double("confidence_threshold", 0.15);
     nms_threshold = (float)get_double("nms_threshold", 0.50);
     max_detections = get_long("max_detections", 20);
-
-    postprocess = get_string("postprocess", "yolo10");
-
-    batch_size = get_long("batch_size", 1);
-    if (batch_size < 1) batch_size = 1;
-    if (batch_size > 8) batch_size = 8;
-
 #ifdef USE_CUDA
     export_enable_fp8 = get_bool("export_enable_fp8", true);
     export_enable_fp16 = get_bool("export_enable_fp16", true);
@@ -436,7 +464,13 @@ bool Config::loadConfig(const std::string& filename)
 #ifdef USE_CUDA
     use_cuda_graph = get_bool("use_cuda_graph", false);
     use_pinned_memory = get_bool("use_pinned_memory", true);
+    gpuMemoryReserveMB = get_long("gpuMemoryReserveMB", 2048);
+    enableGpuExclusiveMode = get_bool("enableGpuExclusiveMode", true);
 #endif
+
+    // System
+    cpuCoreReserveCount = get_long("cpuCoreReserveCount", 4);
+    systemMemoryReserveMB = get_long("systemMemoryReserveMB", 2048);
 
     // Buttons
     button_targeting = splitString(get_string("button_targeting", "RightMouseButton"));
@@ -470,18 +504,29 @@ bool Config::loadConfig(const std::string& filename)
 
     // Overlay
     overlay_opacity = get_long("overlay_opacity", 225);
-    overlay_snow_theme = get_bool("overlay_snow_theme", true);
     overlay_ui_scale = (float)get_double("overlay_ui_scale", 1.0);
+
+    // Depth
+    depth_model_path = get_string("depth_model_path", "depth_anything_v2.engine");
+    depth_fps = get_long("depth_fps", 100);
+    if (depth_fps < 0) depth_fps = 0;
 
     game_overlay_enabled = get_bool("game_overlay_enabled", false);
     game_overlay_max_fps = get_long("game_overlay_max_fps", 0);
     game_overlay_draw_boxes = get_bool("game_overlay_draw_boxes", true);
     game_overlay_draw_future = get_bool("game_overlay_draw_future", true);
+    game_overlay_draw_frame = get_bool("game_overlay_draw_frame", true);
+    game_overlay_show_target_correction = get_bool("game_overlay_show_target_correction", true);
     game_overlay_box_a = get_long("game_overlay_box_a", 255);
     game_overlay_box_r = get_long("game_overlay_box_r", 0);
     game_overlay_box_g = get_long("game_overlay_box_g", 255);
     game_overlay_box_b = get_long("game_overlay_box_b", 0);
+    game_overlay_frame_a = get_long("game_overlay_frame_a", 180);
+    game_overlay_frame_r = get_long("game_overlay_frame_r", 255);
+    game_overlay_frame_g = get_long("game_overlay_frame_g", 255);
+    game_overlay_frame_b = get_long("game_overlay_frame_b", 255);
     game_overlay_box_thickness = (float)get_double("game_overlay_box_thickness", 2.0);
+    game_overlay_frame_thickness = (float)get_double("game_overlay_frame_thickness", 1.5);
     game_overlay_future_point_radius = (float)get_double("game_overlay_future_point_radius", 5.0);
     game_overlay_future_alpha_falloff = (float)get_double("game_overlay_future_alpha_falloff", 1.0);
     clampGameOverlayColor();
@@ -533,6 +578,9 @@ bool Config::saveConfig(const std::string& filename)
     // Capture
     file << "# Capture\n"
         << "capture_method = " << capture_method << "\n"
+        << "capture_target = " << capture_target << "\n"
+        << "capture_window_title = " << capture_window_title << "\n"
+        << "gstreamer_pipeline = " << gstreamer_pipeline << "\n"
         << "detection_resolution = " << detection_resolution << "\n"
         << "capture_fps = " << capture_fps << "\n"
         << "monitor_idx = " << monitor_idx << "\n"
@@ -549,8 +597,6 @@ bool Config::saveConfig(const std::string& filename)
         << std::fixed << std::setprecision(2)
         << "body_y_offset = " << body_y_offset << "\n"
         << "head_y_offset = " << head_y_offset << "\n"
-        << "ignore_third_person = " << (ignore_third_person ? "true" : "false") << "\n"
-        << "shooting_range_targets = " << (shooting_range_targets ? "true" : "false") << "\n"
         << "auto_aim = " << (auto_aim ? "true" : "false") << "\n\n";
 
     // Mouse
@@ -580,7 +626,7 @@ bool Config::saveConfig(const std::string& filename)
         << "easynorecoil_increaseSpeed = " << easynorecoil_increaseSpeed << "\n"
         << "easynorecoil_returnSpeed = " << easynorecoil_returnSpeed << "\n"
 
-        << "# WIN32, GHUB, ARDUINO, KMBOX_B, KMBOX_NET\n"
+        << "# WIN32, GHUB, ARDUINO, MIDI, KMBOX_B, KMBOX_NET, MACKU\n"
         << "input_method = " << input_method << "\n\n";
 
     // Wind mouse
@@ -618,6 +664,11 @@ bool Config::saveConfig(const std::string& filename)
         << "kmbox_net_port = " << kmbox_net_port << "\n"
         << "kmbox_net_uuid = " << kmbox_net_uuid << "\n\n";
 
+    // makcu
+    file << "# Makcu\n"
+        << "makcu_baudrate = " << makcu_baudrate << "\n"
+		<< "makcu_port = " << makcu_port << "\n\n";
+
     // Mouse shooting
     file << "# Mouse shooting\n"
         << "auto_shoot = " << (auto_shoot ? "true" : "false") << "\n"
@@ -634,8 +685,6 @@ bool Config::saveConfig(const std::string& filename)
         << "nms_threshold = " << nms_threshold << "\n"
         << std::setprecision(0)
         << "max_detections = " << max_detections << "\n"
-        << "postprocess = " << postprocess << "\n"
-        << "batch_size = " << batch_size << "\n"
 #ifdef USE_CUDA
         << "export_enable_fp8 = " << (export_enable_fp8 ? "true" : "false") << "\n"
         << "export_enable_fp16 = " << (export_enable_fp16 ? "true" : "false") << "\n"
@@ -646,8 +695,15 @@ bool Config::saveConfig(const std::string& filename)
 #ifdef USE_CUDA
     file << "\n# CUDA\n"
         << "use_cuda_graph = " << (use_cuda_graph ? "true" : "false") << "\n"
-        << "use_pinned_memory = " << (use_pinned_memory ? "true" : "false") << "\n\n";
+        << "use_pinned_memory = " << (use_pinned_memory ? "true" : "false") << "\n"
+        << "gpuMemoryReserveMB = " << gpuMemoryReserveMB << "\n"
+        << "enableGpuExclusiveMode = " << (enableGpuExclusiveMode ? "true" : "false") << "\n\n";
 #endif
+
+	// System
+    file << "# System\n"
+        << "cpuCoreReserveCount = " << cpuCoreReserveCount << "\n"
+        << "systemMemoryReserveMB = " << systemMemoryReserveMB << "\n\n";
 
     // Buttons
     file << "# Buttons\n"
@@ -664,21 +720,31 @@ bool Config::saveConfig(const std::string& filename)
     // Overlay
     file << "# Overlay\n"
         << "overlay_opacity = " << overlay_opacity << "\n"
-        << "overlay_snow_theme = " << (overlay_snow_theme ? "true" : "false") << "\n"
         << std::fixed << std::setprecision(2)
         << "overlay_ui_scale = " << overlay_ui_scale << "\n\n";
+
+    file << "# Depth\n"
+        << "depth_model_path = " << depth_model_path << "\n"
+        << "depth_fps = " << depth_fps << "\n\n";
 
     file << "# Game Overlay\n"
         << "game_overlay_enabled = " << (game_overlay_enabled ? "true" : "false") << "\n"
         << "game_overlay_max_fps = " << game_overlay_max_fps << "\n"
         << "game_overlay_draw_boxes = " << (game_overlay_draw_boxes ? "true" : "false") << "\n"
         << "game_overlay_draw_future = " << (game_overlay_draw_future ? "true" : "false") << "\n"
+        << "game_overlay_draw_frame = " << (game_overlay_draw_frame ? "true" : "false") << "\n"
+        << "game_overlay_show_target_correction = " << (game_overlay_show_target_correction ? "true" : "false") << "\n"
         << "game_overlay_box_a = " << game_overlay_box_a << "\n"
         << "game_overlay_box_r = " << game_overlay_box_r << "\n"
         << "game_overlay_box_g = " << game_overlay_box_g << "\n"
         << "game_overlay_box_b = " << game_overlay_box_b << "\n"
+        << "game_overlay_frame_a = " << game_overlay_frame_a << "\n"
+        << "game_overlay_frame_r = " << game_overlay_frame_r << "\n"
+        << "game_overlay_frame_g = " << game_overlay_frame_g << "\n"
+        << "game_overlay_frame_b = " << game_overlay_frame_b << "\n"
         << std::fixed << std::setprecision(2)
         << "game_overlay_box_thickness = " << game_overlay_box_thickness << "\n"
+        << "game_overlay_frame_thickness = " << game_overlay_frame_thickness << "\n"
         << "game_overlay_future_point_radius = " << game_overlay_future_point_radius << "\n"
         << "game_overlay_future_alpha_falloff = " << game_overlay_future_alpha_falloff << "\n\n";
 

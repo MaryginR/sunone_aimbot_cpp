@@ -8,6 +8,11 @@
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
+#include <array>
+#include <random>
+#include <filesystem>
+#include <algorithm>
+#include <cmath>
 
 #include "capture.h"
 #include "mouse.h"
@@ -18,6 +23,8 @@
 #include "ghub.h"
 #include "other_tools.h"
 #include "virtual_camera.h"
+#include "mem/gpu_resource_manager.h"
+#include "mem/cpu_affinity_manager.h"
 
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -50,6 +57,7 @@ SerialConnection* arduinoSerial = nullptr;
 MidiConnection* arduinoMidi = nullptr;
 Kmbox_b_Connection* kmboxSerial = nullptr;
 KmboxNetConnection* kmboxNetSerial = nullptr;
+MakcuConnection* makcuSerial = nullptr;
 
 std::atomic<bool> detection_resolution_changed(false);
 std::atomic<bool> capture_method_changed(false);
@@ -194,6 +202,154 @@ static bool IsValidImageFile(const std::wstring& wpath, UINT& outW, UINT& outH, 
     return true;
 }
 
+static std::string g_lastIconPath;
+static int g_iconImageId = 0;
+static std::mutex g_iconMutex;
+
+std::string g_iconLastError;
+
+static void draw_target_correction_demo_game_overlay(Game_overlay* overlay, float centerX, float centerY)
+{
+    if (!overlay)
+        return;
+
+    const float scale = 4.0f;
+    float near_px = config.nearRadius * scale;
+    float snap_px = config.snapRadius * scale;
+    near_px = std::max(10.0f, near_px);
+    snap_px = std::max(6.0f, std::min(snap_px, near_px - 4.0f));
+
+    overlay->AddCircle({ centerX, centerY, near_px }, ARGB(180, 80, 120, 255), 2.0f);
+    overlay->AddCircle({ centerX, centerY, snap_px }, ARGB(180, 255, 100, 100), 2.0f);
+
+    static float dist_px = 0.0f;
+    static float vel_px = 0.0f;
+    static auto last_t = std::chrono::steady_clock::now();
+
+    auto now = std::chrono::steady_clock::now();
+    double dt = std::chrono::duration<double>(now - last_t).count();
+    last_t = now;
+    dt = std::max(0.0, std::min(dt, 0.1));
+
+    if (dist_px <= 0.0f || dist_px > near_px)
+        dist_px = near_px;
+
+    double dist_units = dist_px / scale;
+    double speed_mult;
+    if (dist_units < config.snapRadius)
+    {
+        speed_mult = config.minSpeedMultiplier * config.snapBoostFactor;
+    }
+    else if (dist_units < config.nearRadius)
+    {
+        double t = dist_units / config.nearRadius;
+        double crv = 1.0 - std::pow(1.0 - t, config.speedCurveExponent);
+        speed_mult = config.minSpeedMultiplier +
+            (config.maxSpeedMultiplier - config.minSpeedMultiplier) * crv;
+    }
+    else
+    {
+        double norm = std::max(0.0, std::min(dist_units / config.nearRadius, 1.0));
+        speed_mult = config.minSpeedMultiplier +
+            (config.maxSpeedMultiplier - config.minSpeedMultiplier) * norm;
+    }
+
+    float max_multiplier = std::max(0.1f, config.maxSpeedMultiplier);
+    float demo_duration_s = std::max(0.6f, std::min(2.2f / max_multiplier, 3.0f));
+    float base_px_s = near_px / demo_duration_s;
+    vel_px = base_px_s * static_cast<float>(speed_mult);
+    dist_px -= vel_px * static_cast<float>(dt);
+    if (dist_px <= 0.0f)
+        dist_px = near_px;
+
+    overlay->FillCircle({ centerX - dist_px, centerY, 4.0f }, ARGB(255, 255, 255, 80));
+}
+
+static std::string hr_to_string(HRESULT hr)
+{
+    _com_error err(hr);
+    const wchar_t* ws = err.ErrorMessage();
+    int len = WideCharToMultiByte(CP_UTF8, 0, ws, -1, nullptr, 0, nullptr, nullptr);
+    std::string s(len > 0 ? len - 1 : 0, '\0');
+    if (len > 0) WideCharToMultiByte(CP_UTF8, 0, ws, -1, s.data(), len, nullptr, nullptr);
+    return s;
+}
+
+static bool IsValidImageFile(const std::wstring& wpath, UINT& outW, UINT& outH, std::string& outErr)
+{
+    outW = outH = 0;
+    outErr.clear();
+
+    static std::once_flag coinit_flag;
+    static HRESULT coinit_hr = S_OK;
+    std::call_once(coinit_flag, [] {
+        coinit_hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        });
+
+    ComPtr<IWICImagingFactory> factory;
+    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
+    if (FAILED(hr)) { outErr = "WIC factory error: " + hr_to_string(hr); return false; }
+
+    ComPtr<IWICBitmapDecoder> decoder;
+    hr = factory->CreateDecoderFromFilename(wpath.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder);
+    if (FAILED(hr)) { outErr = "DecoderFromFilename failed: " + hr_to_string(hr); return false; }
+
+    ComPtr<IWICBitmapFrameDecode> frame;
+    hr = decoder->GetFrame(0, &frame);
+    if (FAILED(hr)) { outErr = "GetFrame(0) failed: " + hr_to_string(hr); return false; }
+
+    UINT w = 0, h = 0;
+    hr = frame->GetSize(&w, &h);
+    if (FAILED(hr)) { outErr = "GetSize failed: " + hr_to_string(hr); return false; }
+
+    const UINT MAX_DIM = 16384;
+    if (w == 0 || h == 0 || w > MAX_DIM || h > MAX_DIM)
+    {
+        outErr = "Invalid image size: " + std::to_string(w) + "x" + std::to_string(h);
+        return false;
+    }
+
+    ComPtr<IWICFormatConverter> conv;
+    hr = factory->CreateFormatConverter(&conv);
+    if (FAILED(hr)) { outErr = "CreateFormatConverter failed: " + hr_to_string(hr); return false; }
+
+    hr = conv->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA,
+        WICBitmapDitherTypeNone, nullptr, 0.0f, WICBitmapPaletteTypeCustom);
+    if (FAILED(hr)) { outErr = "Converter Initialize failed: " + hr_to_string(hr); return false; }
+
+    const UINT probe_rows = (std::min)(h, 8u);
+    std::vector<uint8_t> probe;
+    probe.resize((size_t)w * probe_rows * 4);
+    WICRect rect{ 0, 0, (INT)w, (INT)probe_rows };
+    hr = conv->CopyPixels(&rect, (UINT)(w * 4), (UINT)probe.size(), probe.data());
+    if (FAILED(hr)) { outErr = "CopyPixels failed: " + hr_to_string(hr); return false; }
+
+    outW = w; outH = h;
+    return true;
+}
+
+inline void SetRandomConsoleTitle()
+{
+    static constexpr std::array<const wchar_t*, 10> kTitles = {
+        L"Microsoft Edge",
+        L"Google Chrome",
+        L"Notepad",
+        L"Windows Terminal",
+        L"PowerShell",
+        L"Visual Studio Code",
+        L"Task Manager",
+        L"File Explorer",
+        L"Calculator",
+        L"Command Prompt",
+    };
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<size_t> dist(0, kTitles.size() - 1);
+
+    ::SetConsoleTitleW(kTitles[dist(gen)]);
+}
+
 void createInputDevices()
 {
     if (arduinoSerial)
@@ -225,6 +381,12 @@ void createInputDevices()
     {
         delete kmboxNetSerial;
         kmboxNetSerial = nullptr;
+    }
+
+    if (makcuSerial)
+    {
+        delete makcuSerial;
+        makcuSerial = nullptr;
     }
 
     if (config.input_method == "ARDUINO")
@@ -276,6 +438,17 @@ void createInputDevices()
             delete kmboxNetSerial; kmboxNetSerial = nullptr;
         }
     }
+    else if (config.input_method == "MAKCU")
+    {
+        std::cout << "[Mouse] Using MAKCU input." << std::endl;
+        makcuSerial = new MakcuConnection(config.makcu_port, config.makcu_baudrate);
+        if (!makcuSerial->isOpen())
+        {
+            std::cerr << "[Makcu] Error connecting." << std::endl;
+            delete makcuSerial;
+            makcuSerial = nullptr;
+        }
+    }
     else
     {
         std::cout << "[Mouse] Using default Win32 method input." << std::endl;
@@ -291,6 +464,7 @@ void assignInputDevices()
         globalMouseThread->setGHubMouse(gHub);
         globalMouseThread->setKmboxConnection(kmboxSerial);
         globalMouseThread->setKmboxNetConnection(kmboxNetSerial);
+        globalMouseThread->setMakcuConnection(makcuSerial);
     }
 }
 
@@ -320,6 +494,10 @@ void handleEasyNoRecoil(MouseThread& mouseThread)
         else if (kmboxNetSerial)
         {
             kmboxNetSerial->move(0, recoil_compensation);
+        }
+        else if (makcuSerial)
+        {
+            makcuSerial->move(0, recoil_compensation);
         }
         else
         {
@@ -351,7 +529,9 @@ void mouseThreadFunction(MouseThread& mouseThread)
             std::unique_lock<std::mutex> lock(detectionBuffer.mutex);
             detectionBuffer.cv.wait(lock, [&] {
                 return detectionBuffer.version > lastVersion || shouldExit;
-                });
+                }
+            );
+
             if (shouldExit) break;
             boxes = detectionBuffer.boxes;
             classes = detectionBuffer.classes;
@@ -494,13 +674,43 @@ static void gameOverlayRenderLoop()
 
     while (!gameOverlayShouldExit.load())
     {
-        if (!config.game_overlay_enabled ||
-            !gameOverlayPtr ||
-            !gameOverlayPtr->IsRunning())
+        if (!config.game_overlay_enabled)
+        {
+            if (gameOverlayPtr)
+            {
+                gameOverlayPtr->Stop();
+                delete gameOverlayPtr;
+                gameOverlayPtr = nullptr;
+                std::lock_guard<std::mutex> lk(g_iconMutex);
+                g_lastIconPath.clear();
+                g_iconImageId = 0;
+                g_iconLastError.clear();
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+            continue;
+        }
+
+        if (!gameOverlayPtr)
+        {
+            gameOverlayPtr = new Game_overlay();
+            gameOverlayPtr->SetWindowBounds(0, 0, pw, ph);
+            gameOverlayPtr->SetMaxFPS(config.game_overlay_max_fps > 0 ? (unsigned)config.game_overlay_max_fps : 0);
+            gameOverlayPtr->Start();
+        }
+        else if (!gameOverlayPtr->IsRunning())
+        {
+            gameOverlayPtr->SetWindowBounds(0, 0, pw, ph);
+            gameOverlayPtr->SetMaxFPS(config.game_overlay_max_fps > 0 ? (unsigned)config.game_overlay_max_fps : 0);
+            gameOverlayPtr->Start();
+        }
+
+        if (!gameOverlayPtr || !gameOverlayPtr->IsRunning())
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(150));
             continue;
         }
+
+        gameOverlayPtr->SetMaxFPS(config.game_overlay_max_fps > 0 ? (unsigned)config.game_overlay_max_fps : 0);
 
         const int detRes = config.detection_resolution;
         if (detRes <= 0)
@@ -538,10 +748,30 @@ static void gameOverlayRenderLoop()
             std::lock_guard<std::mutex> lk(g_iconMutex);
             if (config.game_overlay_icon_path != g_lastIconPath)
             {
+                if (g_iconImageId != 0)
+                {
+                    gameOverlayPtr->UnloadImage(g_iconImageId);
+                    g_iconImageId = 0;
+                }
                 g_lastIconPath = config.game_overlay_icon_path;
-                g_iconImageId = 0;
-                std::filesystem::path p(g_lastIconPath);
-                if (std::filesystem::exists(p) && p.has_filename())
+                std::error_code fsErr;
+                std::filesystem::path p;
+                try
+                {
+                    p = std::filesystem::u8path(g_lastIconPath);
+                }
+                catch (const std::exception&)
+                {
+                    p = std::filesystem::path(g_lastIconPath);
+                }
+                const bool hasFile = !g_lastIconPath.empty() && p.has_filename() && std::filesystem::is_regular_file(p, fsErr);
+                if (fsErr)
+                {
+                    g_iconImageId = 0;
+                    g_iconLastError = "[GameOverlay] Failed to read icon path: " + g_lastIconPath + " (" + fsErr.message() + ")";
+                    std::cerr << g_iconLastError << std::endl;
+                }
+                else if (hasFile)
                 {
                     const std::wstring wpath = p.wstring();
                     g_iconLastError.clear();
@@ -587,12 +817,50 @@ static void gameOverlayRenderLoop()
                 }
                 else
                 {
-                    std::cerr << "[GameOverlay] Icon file not found: " << g_lastIconPath << std::endl;
+                    g_iconImageId = 0;
+                    g_iconLastError = "[GameOverlay] Icon file not found: " + g_lastIconPath;
+                    std::cerr << g_iconLastError << std::endl;
                 }
             }
         }
 
         gameOverlayPtr->BeginFrame();
+
+        // CAPTURE FRAME
+        if (config.game_overlay_draw_frame)
+        {
+            int A = config.game_overlay_frame_a;
+            int R = config.game_overlay_frame_r;
+            int G = config.game_overlay_frame_g;
+            int B = config.game_overlay_frame_b;
+            auto clamp255 = [](int& v) { if (v < 0) v = 0; else if (v > 255) v = 255; };
+            clamp255(A); clamp255(R); clamp255(G); clamp255(B);
+            const uint32_t col =
+                (uint32_t(A) << 24) |
+                (uint32_t(R) << 16) |
+                (uint32_t(G) << 8) |
+                uint32_t(B);
+
+            float thickness = config.game_overlay_frame_thickness;
+            if (thickness <= 0.f) thickness = 1.f;
+
+            if (config.circle_mask)
+            {
+                float cx = baseX + regionW * 0.5f;
+                float cy = baseY + regionH * 0.5f;
+                float radius = std::min(regionW, regionH) * 0.5f;
+                gameOverlayPtr->AddCircle({ cx, cy, radius }, col, thickness);
+            }
+            else
+            {
+                gameOverlayPtr->AddRect(
+                    { static_cast<float>(baseX),
+                      static_cast<float>(baseY),
+                      static_cast<float>(regionW),
+                      static_cast<float>(regionH) },
+                    col, thickness);
+            }
+        }
 
         // BOXES
         if (config.game_overlay_draw_boxes && !boxesCopy.empty())
@@ -751,6 +1019,13 @@ static void gameOverlayRenderLoop()
             );
         }
 
+        if (config.game_overlay_show_target_correction)
+        {
+            draw_target_correction_demo_game_overlay(
+                gameOverlayPtr,
+                static_cast<float>(baseX) + regionW * 0.5f,
+                static_cast<float>(baseY) + regionH * 0.5f);
+        }
 
         gameOverlayPtr->EndFrame();
 
@@ -765,13 +1040,80 @@ static void gameOverlayRenderLoop()
         else
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
+
+    if (gameOverlayPtr)
+    {
+        gameOverlayPtr->Stop();
+        delete gameOverlayPtr;
+        gameOverlayPtr = nullptr;
+    }
 }
 
 int main()
 {
+    SetConsoleOutputCP(CP_UTF8);
+    SetRandomConsoleTitle();
+    cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_FATAL);
+
+    if (!config.loadConfig())
+    {
+        std::cerr << "[Config] Error with loading config!" << std::endl;
+        std::cin.get();
+        return -1;
+    }
+
+    CPUAffinityManager cpuManager;
+
+    if (config.cpuCoreReserveCount > 0)
+    {
+        if (!cpuManager.reserveCPUCores(config.cpuCoreReserveCount)) return -1;
+    }
+
+    if (config.systemMemoryReserveMB > 0)
+    {
+        if (!cpuManager.reserveSystemMemory(config.systemMemoryReserveMB)) return -1;
+    }
+
     try
     {
 #ifdef USE_CUDA
+        int cuda_runtime_version = 0;
+        cudaError_t runtime_status = cudaRuntimeGetVersion(&cuda_runtime_version);
+
+        if (runtime_status != cudaSuccess)
+        {
+            std::cerr << "[MAIN] CUDA runtime check failed: " << cudaGetErrorString(runtime_status) << std::endl;
+            std::cin.get();
+            return -1;
+        }
+
+        if (config.verbose)
+            std::cout << "[CUDA] Version: " << cuda_runtime_version << std::endl;
+
+        const int required_cuda_version = 13010;
+        if (cuda_runtime_version < required_cuda_version)
+        {
+            int required_major = required_cuda_version / 1000;
+            int required_minor = (required_cuda_version % 1000) / 10;
+            int runtime_major = cuda_runtime_version / 1000;
+            int runtime_minor = (cuda_runtime_version % 1000) / 10;
+            std::cerr << "[MAIN] CUDA " << required_major << "." << required_minor
+                << " required. Detected " << runtime_major << "." << runtime_minor << "." << std::endl;
+            std::cin.get();
+            return -1;
+        }
+
+        GPUResourceManager gpuManager;
+        if (config.gpuMemoryReserveMB > 0)
+        {
+            if (!gpuManager.reserveGPUMemory(config.gpuMemoryReserveMB)) return -1;
+        }
+        
+        if (config.enableGpuExclusiveMode)
+        {
+            if (!gpuManager.setGPUExclusiveMode()) return -1;
+        }
+
         int cuda_devices = 0;
         if (cudaGetDeviceCount(&cuda_devices) != cudaSuccess || cuda_devices == 0)
         {
@@ -780,13 +1122,9 @@ int main()
             return -1;
         }
 #endif
-
-        SetConsoleOutputCP(CP_UTF8);
-        cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_FATAL);
-
         if (!CreateDirectory(L"screenshots", NULL) && GetLastError() != ERROR_ALREADY_EXISTS)
         {
-            std::cout << "[MAIN] Error with screenshoot folder" << std::endl;
+            std::cout << "[MAIN] Error with screenshot folder" << std::endl;
             std::cin.get();
             return -1;
         }
@@ -794,13 +1132,6 @@ int main()
         if (!CreateDirectory(L"models", NULL) && GetLastError() != ERROR_ALREADY_EXISTS)
         {
             std::cout << "[MAIN] Error with models folder" << std::endl;
-            std::cin.get();
-            return -1;
-        }
-
-        if (!config.loadConfig())
-        {
-            std::cerr << "[Config] Error with loading config!" << std::endl;
             std::cin.get();
             return -1;
         }
