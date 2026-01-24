@@ -212,6 +212,10 @@ public:
     std::unordered_map<std::string, GameProfile> game_profiles;
     std::string                                  active_game;
 
+    //Safety
+    bool disableConsole;
+    bool disableOverlay;
+
     const GameProfile & currentProfile() const;
     std::pair<double, double> degToCounts(double degX, double degY, double fovNow) const;
 

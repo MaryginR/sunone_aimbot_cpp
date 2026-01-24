@@ -222,7 +222,7 @@ void keyboardListener()
 
         // Open overlay - Win32
         static bool overlayPressed = false;
-        if (isAnyKeyPressedWin32Only(config.button_open_overlay))
+        if (isAnyKeyPressedWin32Only(config.button_open_overlay) && !config.disableOverlay)
         {
             if (!overlayPressed)
             {

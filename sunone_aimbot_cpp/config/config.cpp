@@ -258,6 +258,10 @@ bool Config::loadConfig(const std::string& filename)
         screenshot_delay = 500;
         verbose = false;
 
+        //Safety
+        disableConsole = false;
+        disableOverlay = false;
+
         // Game profiles
         game_profiles.clear();
         GameProfile uni;
@@ -560,6 +564,10 @@ bool Config::loadConfig(const std::string& filename)
     screenshot_delay = get_long("screenshot_delay", 500);
     verbose = get_bool("verbose", false);
 
+    //Safety
+    disableConsole = get_bool("disable_console", false);
+    disableOverlay = get_bool("disable_overlay", false);
+
     return true;
 }
 
@@ -791,6 +799,11 @@ bool Config::saveConfig(const std::string& filename)
         << "screenshot_button = " << joinStrings(screenshot_button) << "\n"
         << "screenshot_delay = " << screenshot_delay << "\n"
         << "verbose = " << (verbose ? "true" : "false") << "\n\n";
+
+    // Safety
+    file << "# Safety\n"
+        << "disable_console = " << (disableConsole ? "true" : "false") << "\n"
+        << "disable_overlay = " << (disableOverlay ? "true" : "false") << "\n\n";
 
     // Active game
     file << "# Active game profile\n";

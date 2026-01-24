@@ -562,7 +562,7 @@ void OverlayThread()
         }
         if (shouldExit) break;
 
-        if (isAnyKeyPressed(config.button_open_overlay) & 0x1)
+        if (isAnyKeyPressed(config.button_open_overlay) & 0x1 && !config.disableOverlay)
         {
             show_overlay = !show_overlay;
 

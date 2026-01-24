@@ -993,6 +993,11 @@ int main()
         return -1;
     }
 
+    if (config.disableConsole)
+    {
+        FreeConsole();
+    }
+
     CPUAffinityManager cpuManager;
 
     if (config.cpuCoreReserveCount > 0)
