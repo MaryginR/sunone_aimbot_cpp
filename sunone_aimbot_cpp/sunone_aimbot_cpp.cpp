@@ -401,45 +401,18 @@ void assignInputDevices()
 
 void handleEasyNoRecoil(MouseThread& mouseThread)
 {
-    if (config.easynorecoil && shooting.load() && zooming.load())
-    {
-        std::lock_guard<std::mutex> lock(mouseThread.input_method_mutex);
-        int recoil_compensation = static_cast<int>(config.easynorecoilstrength);
-        
-        if (arduinoSerial)
-        {
-            arduinoSerial->move(0, recoil_compensation);
-        }
-        if (arduinoMidi)
-        {
-            arduinoMidi->move(0, recoil_compensation);
-        }
-        else if (gHub)
-        {
-            gHub->mouse_xy(0, recoil_compensation);
-        }
-        else if (kmboxSerial)
-        {
-            kmboxSerial->move(0, recoil_compensation);
-        }
-        else if (kmboxNetSerial)
-        {
-            kmboxNetSerial->move(0, recoil_compensation);
-        }
-        else if (makcuSerial)
-        {
-            makcuSerial->move(0, recoil_compensation);
-        }
-        else
-        {
-            INPUT input = { 0 };
-            input.type = INPUT_MOUSE;
-            input.mi.dx = 0;
-            input.mi.dy = recoil_compensation;
-            input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_VIRTUALDESK;
-            SendInput(1, &input, sizeof(INPUT));
-        }
-    }
+    if (!config.easynorecoil)
+        return;
+
+    if (!shooting.load() || !zooming.load())
+        return;
+
+    int recoil_compensation = static_cast<int>(config.easynorecoilstrength);
+
+    if (recoil_compensation == 0)
+        return;
+
+    mouseThread.applyRecoilMove(recoil_compensation);
 }
 
 void mouseThreadFunction(MouseThread& mouseThread)

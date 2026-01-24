@@ -540,6 +540,56 @@ void MouseThread::moveMousePivot(double pivotX, double pivotY)
     }
 }
 
+void MouseThread::applyRecoilMove(int dy)
+{
+    if (dy == 0)
+        return;
+
+    std::lock_guard<std::mutex> lock(input_method_mutex);
+
+    int dx = 0;
+    int dyFinal = dy;
+
+    if (wind_mouse_enabled)
+    {
+        // --- НАСТРОЙКИ ---
+        double sideStrength = config.wind_W * 0.35;   // базовая "шаткость"
+        double maxSide = std::max(1.0, std::abs(dy) * 0.4);
+        double damping = 0.85; // возврат к центру
+
+        // случайный импульс влево/вправо
+        double impulse =
+            ((double)rand() / RAND_MAX * 2.0 - 1.0) * sideStrength;
+
+        recoilDriftX += impulse;
+
+        // ограничиваем уход вбок
+        recoilDriftX = std::clamp(recoilDriftX, -maxSide, maxSide);
+
+        // затухание
+        recoilDriftX *= damping;
+
+        dx = static_cast<int>(std::round(recoilDriftX));
+    }
+    else
+    {
+        // если windMouse выключен — никакой боковой "памяти"
+        recoilDriftX = 0.0;
+        dx = 0;
+    }
+
+    if (wind_mouse_enabled)
+    {
+        windMouseMoveRelative(dx, dyFinal);
+    }
+    else
+    {
+        queueMove(dx, dyFinal);
+    }
+}
+
+
+
 void MouseThread::pressMouse(const AimbotTarget& target)
 {
     std::lock_guard<std::mutex> lock(input_method_mutex);

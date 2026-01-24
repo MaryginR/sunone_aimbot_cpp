@@ -45,6 +45,7 @@ private:
     std::chrono::steady_clock::time_point last_target_time;
     std::atomic<bool> target_detected{ false };
     std::atomic<bool> mouse_pressed{ false };
+    double recoilDriftX = 0.0;
 
     SerialConnection* serial;
     MidiConnection* midi;
@@ -126,6 +127,7 @@ public:
     );
 
     void moveMousePivot(double pivotX, double pivotY);
+    void applyRecoilMove(int dy);
     std::pair<double, double> predict_target_position(double target_x, double target_y);
     void moveMouse(const AimbotTarget& target);
     void pressMouse(const AimbotTarget& target);
